@@ -36,6 +36,10 @@ dev: clean
 tidy:
 	$(call tidy-target,source/projects/karma_tilde/karma~.c)
 
+
+complexity:
+	@complexity source/projects/karma_tilde/karma\~.c
+
 link:
 	$(call section,"symlink to Max 'Packages' Directories")
 	@for MAX_VERSION in $(MAX_VERSIONS); do \
