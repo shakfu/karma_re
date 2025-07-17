@@ -45,26 +45,26 @@ struct t_karma {
     long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
 
-    t_ptr_int   bframes;    // number of buffer frames (number of floats long the buffer is for a single channel)
-    t_ptr_int   bchans;     // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
-    t_ptr_int   ochans;     // number of object audio channels (object arg #2: 1 / 2 / 4)
-    t_ptr_int   nchans;     // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
+    long   bframes;    // number of buffer frames (number of floats long the buffer is for a single channel)
+    long   bchans;     // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
+    long   ochans;     // number of object audio channels (object arg #2: 1 / 2 / 4)
+    long   nchans;     // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
-    t_ptr_int   interpflag; // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a t_ptr_int ??)
-    t_ptr_int   recordhead; // record head position in samples
-    t_ptr_int   minloop;    // the minimum point in loop so far that has been requested as start point (in samples), is static value
-    t_ptr_int   maxloop;    // the overall loop end recorded so far (in samples), is static value
-    t_ptr_int   startloop;  // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
-    t_ptr_int   endloop;    // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
-    t_ptr_int   pokesteps;  // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
-    t_ptr_int   recordfade; // fade counter for recording in samples
-    t_ptr_int   playfade;   // fade counter for playback in samples
-    t_ptr_int   globalramp; // general fade time (for both recording and playback) in samples
-    t_ptr_int   snrramp;    // switch n ramp time in samples ("generally much shorter than general fade time")
-    t_ptr_int   snrtype;    // switch n ramp curve option choice (!! why is this a t_ptr_int ??)
-    t_ptr_int   reportlist; // right list outlet report granularity in ms (!! why is this a t_ptr_int ??)
-    t_ptr_int   initiallow; // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
-    t_ptr_int   initialhigh;// store inital loop high point after 'initial loop' (default -1 causes default phase 1)
+    long   interpflag; // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
+    long   recordhead; // record head position in samples
+    long   minloop;    // the minimum point in loop so far that has been requested as start point (in samples), is static value
+    long   maxloop;    // the overall loop end recorded so far (in samples), is static value
+    long   startloop;  // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   endloop;    // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   pokesteps;  // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
+    long   recordfade; // fade counter for recording in samples
+    long   playfade;   // fade counter for playback in samples
+    long   globalramp; // general fade time (for both recording and playback) in samples
+    long   snrramp;    // switch n ramp time in samples ("generally much shorter than general fade time")
+    long   snrtype;    // switch n ramp curve option choice (!! why is this a long ??)
+    long   reportlist; // right list outlet report granularity in ms (!! why is this a long ??)
+    long   initiallow; // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
+    long   initialhigh;// store inital loop high point after 'initial loop' (default -1 causes default phase 1)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
@@ -130,7 +130,7 @@ static inline double spline_interp(double f, double w, double x, double y, doubl
 
 
 // easing function for recording (with ipoke)
-static inline double ease_record(double y1, char updwn, double globalramp, t_ptr_int playfade)  // !! rewrite !!
+static inline double ease_record(double y1, char updwn, double globalramp, long playfade)  // !! rewrite !!
 {
     double ifup    = (1.0 - (((double)playfade) / globalramp)) * PI;
     double ifdown  = (((double)playfade) / globalramp) * PI;
@@ -138,7 +138,7 @@ static inline double ease_record(double y1, char updwn, double globalramp, t_ptr
 }
 
 // easing function for switch & ramp
-static inline double ease_switchramp(double y1, double snrfade, t_ptr_int snrtype)
+static inline double ease_switchramp(double y1, double snrfade, long snrtype)
 {
     switch (snrtype)
     {
@@ -167,115 +167,60 @@ static inline double ease_switchramp(double y1, double snrfade, t_ptr_int snrtyp
 }
 
 // easing function for buffer read
-static inline void ease_bufoff(t_ptr_int framesm1, float *buf, t_ptr_int pchans, t_ptr_int markposition, char direction, double globalramp)
+static inline void ease_bufoff(long framesm1, float *buf, long pchans, long markposition, char direction, double globalramp)
 {
-    long i, fadpos;
-    
+    long i, fadpos, c;
+    double fade;
+
+    if (globalramp <= 0) return;
+
     for (i = 0; i < globalramp; i++)
     {
         fadpos = markposition + (direction * i);
-        
-        if ( !((fadpos < 0) || (fadpos > framesm1)) )
+
+        if (fadpos < 0 || fadpos > framesm1)
+            continue;
+
+        fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
+
+        for (c = 0; c < pchans; c++)
         {
-            buf[fadpos * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                buf[(fadpos * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    buf[(fadpos * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        buf[(fadpos * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
+            buf[(fadpos * pchans) + c] *= fade;
         }
     }
-    
-    return;
+}
+
+// Helper function to apply fade to all channels at a given position
+static inline void apply_fade(long pos, long framesm1, float *buf, long pchans, double fade) {
+    if (pos < 0 || pos > framesm1)
+        return;
+    for (long c = 0; c < pchans; c++) {
+        buf[(pos * pchans) + c] *= fade;
+    }
 }
 
 // easing function for buffer write
-static inline void ease_bufon(t_ptr_int framesm1, float *b, t_ptr_int pchans, t_ptr_int markposition1, t_ptr_int markposition2, char direction, double globalramp)
+static inline void ease_bufon(long framesm1, float *buf, long pchans, long markposition1, long markposition2, char direction, double globalramp)
 {
-    long i, fadpos1, fadpos2, fadpos3;
-    
+    long i;
+    long fadpos[3];
+    double fade;
+
     for (i = 0; i < globalramp; i++)
     {
-        fadpos1 = (markposition1 + (-direction)) + (-direction * i);
-        fadpos2 = (markposition2 + (-direction)) + (-direction * i);
-        fadpos3 =  markposition2 + (direction * i);
-        
-        if ( !((fadpos1 < 0) || (fadpos1 > framesm1)) )
-        {
-            b[fadpos1 * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos1 * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos1 * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos1 * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
-        }
-        
-        if ( !((fadpos2 < 0) || (fadpos2 > framesm1)) )
-        {
-            b[fadpos2 * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos2 * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos2 * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos2 * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
-        }
-        
-        if ( !((fadpos3 < 0) || (fadpos3 > framesm1)) )
-        {
-            b[fadpos3 * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos3 * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos3 * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos3 * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
-        }
+        fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
+        fadpos[0] = (markposition1 - direction) - (direction * i);
+        fadpos[1] = (markposition2 - direction) - (direction * i);
+        fadpos[2] =  markposition2 + (direction * i);
+
+        apply_fade(fadpos[0], framesm1, buf, pchans, fade);
+        apply_fade(fadpos[1], framesm1, buf, pchans, fade);
+        apply_fade(fadpos[2], framesm1, buf, pchans, fade);
     }
-    
-    return;
 }
 
 // interpolation points
-static inline void interp_index(t_ptr_int playhead, t_ptr_int *indx0, t_ptr_int *indx1, t_ptr_int *indx2, t_ptr_int *indx3, char direction, char directionorig, t_ptr_int maxloop, t_ptr_int framesm1)
+static inline void interp_index(long playhead, long *indx0, long *indx1, long *indx2, long *indx3, char direction, char directionorig, long maxloop, long framesm1)
 {
     *indx0 = playhead - direction;                                   // calc of indecies for interpolations
     
@@ -398,8 +343,8 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
     t_karma *x;
     t_symbol *bufname = 0;
     long syncoutlet = 0;
-    t_ptr_int chans = 0;
-    t_ptr_int attrstart = attr_args_offset(argc, argv);
+    long chans = 0;
+    long attrstart = attr_args_offset(argc, argv);
     
     x = (t_karma *)object_alloc(karma_class);
     x->initskip = 0;
@@ -557,7 +502,7 @@ void karma_buf_setup(t_karma *x, t_symbol *s)
 void karma_buf_modify(t_karma *x, t_buffer_obj *b)
 {
     double      modbsr, modbmsr;
-    t_ptr_int   modchans, modframes;
+    long   modchans, modframes;
     
     if (b) {
         modbsr     = buffer_getsamplerate(b);
@@ -592,7 +537,7 @@ void karma_buf_values_internal(t_karma *x, double templow, double temphigh, long
 //  t_symbol *loop_points_sym = 0;                      // dev
     t_symbol *caller_sym = 0;
     t_buffer_obj *buf;
-    t_ptr_int bframesm1;//, bchanscnt;
+    long bframesm1;//, bchanscnt;
 //  long bchans;
     double bframesms, bvsnorm, bvsnorm05;               // !!
     double low, lowtemp, high, hightemp;
@@ -1067,7 +1012,7 @@ void karma_setloop_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv)  
 void karma_setloop(t_karma *x, t_symbol *s, short ac, t_atom *av)   // " setloop ..... "
 {
     t_symbol *reset_sym = 0;
-    long points_flag = 1;                   // initial low/high points stored as (t_ptr_int)samples internally
+    long points_flag = 1;                   // initial low/high points stored as (long)samples internally
     bool callerid = false;                  // false = called from "setloop"
     double initiallow = (double)x->initiallow;
     double initialhigh = (double)x->initialhigh;
@@ -1101,7 +1046,7 @@ void karma_resetloop(t_karma *x)                // " resetloop " message only
 {
     long points_flag = 1;                       // initial low/high points stored as samples internally
     bool callerid = false;                      // false = called from "resetloop"
-    double initiallow = (double)x->initiallow;  // initial low/high points stored as t_ptr_int...
+    double initiallow = (double)x->initiallow;  // initial low/high points stored as long...
     double initialhigh = (double)x->initialhigh;// ...
 
 //  if (!x->recordinit)
@@ -1116,10 +1061,10 @@ void karma_clock_list(t_karma *x)
     
     if (rlgtz)                                      // ('reportlist 0' == off, else milliseconds)
     {
-        t_ptr_int frames        = x->bframes - 1;   // !! no '- 1' ??
-        t_ptr_int maxloop       = x->maxloop;
-        t_ptr_int minloop       = x->minloop;
-        t_ptr_int setloopsize;
+        long frames        = x->bframes - 1;   // !! no '- 1' ??
+        long maxloop       = x->maxloop;
+        long minloop       = x->minloop;
+        long setloopsize;
         
         double bmsr         = x->bmsr;
         double playhead     = x->playhead;
@@ -1227,7 +1172,7 @@ void karma_float(t_karma *x, double speedfloat)
 /*
 void karma_select_internal(t_karma *x, double selectionstart, double selectionlength)
 {
-    t_ptr_int bfrmaesminusone;
+    long bfrmaesminusone;
     double setloopsize;
 
     double minsampsnorm = x->bvsnorm * 0.5;         // half vectorsize samples minimum as normalised value  // !! buffer sr !!
@@ -1282,7 +1227,7 @@ void karma_select_size(t_karma *x, double duration)
 */
 void karma_select_start(t_karma *x, double positionstart)   // positionstart = "position" float message
 {
-    t_ptr_int bfrmaesminusone, setloopsize;
+    long bfrmaesminusone, setloopsize;
     x->selstart = CLAMP(positionstart, 0., 1.);
     
     // for dealing with selection-out-of-bounds logic:
@@ -1323,7 +1268,7 @@ void karma_select_start(t_karma *x, double positionstart)   // positionstart = "
 
 void karma_select_size(t_karma *x, double duration)     // duration = "window" float message
 {
-    t_ptr_int bfrmaesminusone, setloopsize;
+    long bfrmaesminusone, setloopsize;
     
     //double minsampsnorm = x->bvsnorm * 0.5;           // half vectorsize samples minimum as normalised value  // !! buffer sr !!
     //x->selection = (duration < 0.0) ? 0.0 : duration; // !! allow zero for rodrigo !!
@@ -1394,7 +1339,7 @@ void karma_record(t_karma *x)
     long i;
     char sc, sh;
     t_bool record, go, altflag, append, init;
-    t_ptr_int bframes, rchans;  // !! local 'rchans' = 'nchans' not 'bchans' !!
+    long bframes, rchans;  // !! local 'rchans' = 'nchans' not 'bchans' !!
     
     t_buffer_obj *buf = buffer_ref_getobject(x->buf);
 
@@ -1635,9 +1580,9 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
     double o1prev, o1dif, frac, snrfade, globalramp, snrramp, writeval1, coeff1, recin1;
     t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
     char direction, directionprev, directionorig, statecontrol, playfadeflag, recfadeflag, recendmark;
-    t_ptr_int playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
-    t_ptr_int frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
-    t_ptr_int initiallow, initialhigh;
+    long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long initiallow, initialhigh;
     
     t_buffer_obj *buf = buffer_ref_getobject(x->buf);
     float *b = buffer_locksamples(buf);
