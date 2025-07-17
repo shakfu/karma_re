@@ -34,11 +34,11 @@ dev: clean
 		cmake --build . --config Debug
 
 tidy:
-	$(call tidy-target,source/projects/karma_tilde/karma~.c)
+	$(call tidy-target,source/projects/karma_tilde/karma~.cpp)
 
 
 complexity:
-	@complexity source/projects/karma_tilde/karma\~.c
+	@complexity source/projects/karma_tilde/karma\~.cpp
 
 link:
 	$(call section,"symlink to Max 'Packages' Directories")

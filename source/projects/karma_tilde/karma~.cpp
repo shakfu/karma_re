@@ -1284,91 +1284,70 @@ void karma_play(t_karma *x)
 
 void karma_record(t_karma *x)
 {
-    float *b;
-    long i;
-    char sc, sh;
-    t_bool record, go, altflag, append, init;
-    long bframes, rchans;  // !! local 'rchans' = 'nchans' not 'bchans' !!
-    
-    t_buffer_obj *buf = buffer_ref_getobject(x->buf);
+    // Helper to clear buffer
+    auto clear_buffer = [](t_buffer_obj *buf, long bframes, long rchans) -> bool {
+        float *b = buffer_locksamples(buf);
+        if (!b)
+            return false;
+        for (long i = 0; i < bframes; i++) {
+            for (long c = 0; c < rchans; c++) {
+                b[i * rchans + c] = 0.0f;
+            }
+        }
+        buffer_setdirty(buf);
+        buffer_unlocksamples(buf);
+        return true;
+    };
 
-    record = x->record;
-    go = x->go;
-    altflag = x->alternateflag;
-    append = x->append;
-    init = x->recordinit;
-    // sc = x->statecontrol; // not used
-    sh = x->statehuman;
-    
+    t_buffer_obj *buf = buffer_ref_getobject(x->buf);
+    char sc = 0, sh = x->statehuman;
+    t_bool record = x->record;
+    t_bool go = x->go;
+    t_bool altflag = x->alternateflag;
+    t_bool append = x->append;
+    t_bool init = x->recordinit;
+
     x->stopallowed = 1;
-    
+
     if (record) {
         if (altflag) {
             sc = 2;
-            sh = 3;         // ?? is this wrong?, it is not neccessarily overdub ??
+            sh = 3;
         } else {
             sc = 3;
-            sh = (sh == 3) ? 1 : 2; // !! hack !! (but works !!)
+            sh = (sh == 3) ? 1 : 2;
         }
-    } else {
-        if (append) {
-            if (go) {
-                if (altflag) {
-                    sc = 2;
-                    sh = 3; // ?? is this wrong?, it is not neccessarily overdub ??
-                } else {
-                    sc = 10;// !!
-                    sh = 4;
-                }
+    } else if (append) {
+        if (go) {
+            if (altflag) {
+                sc = 2;
+                sh = 3;
             } else {
-                sc = 1;
-                sh = 5;
+                sc = 10;
+                sh = 4;
             }
         } else {
-            if (!go) {
-                init = 1;
-                if (buf) {
-                    rchans = x->bchans;     // !! nchans not bchans = only record onto channel(s) currently used by karma~...
-                    bframes = x->bframes;   // ...(leave other channels in tact)    <<-- BOLLOX
-                    b = buffer_locksamples(buf);
-                    if (!b)
-                        goto zero;
-                    
-                    for (i = 0; i < bframes; i++) {
-                        if (rchans > 1) {
-                            b[i * rchans] = 0.0;
-                            b[(i * rchans) + 1] = 0.0;
-                            if (rchans > 2) {
-                                b[(i * rchans) + 2] = 0.0;
-                                if (rchans > 3) {
-                                    b[(i * rchans) + 3] = 0.0;
-                                }
-                            }
-                        } else {
-                            b[i] = 0.0;
-                        }
-                    }
-                    
-                    buffer_setdirty(buf);
-                    buffer_unlocksamples(buf);
-                }
-                sc = 1;
-                sh = 5;
-            } else {            // !! not 'record', not 'append', is 'go' ??
-                sc = 11;        // !! ?? seems wrong
-                sh = 3;         // !! is this overdub ?? seems wrong
-            }
+            sc = 1;
+            sh = 5;
         }
+    } else if (!go) {
+        init = 1;
+        if (buf) {
+            long rchans = x->bchans;
+            long bframes = x->bframes;
+            clear_buffer(buf, bframes, rchans);
+        }
+        sc = 1;
+        sh = 5;
+    } else {
+        sc = 11;
+        sh = 3;
     }
-    
-    go = 1;
-    x->go = go;
+
+    x->go = 1;
     x->recordinit = init;
     x->statecontrol = sc;
     x->statehuman = sh;
-    
-zero:
-    return;
 }
 /*
 // store initial loop recording points on command - pointless
