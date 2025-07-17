@@ -190,21 +190,20 @@ static inline void ease_bufoff(long framesm1, float *buf, long pchans, long mark
     }
 }
 
-// Helper function to apply fade to all channels at a given position
-static inline void apply_fade(long pos, long framesm1, float *buf, long pchans, double fade) {
-    if (pos < 0 || pos > framesm1)
-        return;
-    for (long c = 0; c < pchans; c++) {
-        buf[(pos * pchans) + c] *= fade;
-    }
-}
-
 // easing function for buffer write
 static inline void ease_bufon(long framesm1, float *buf, long pchans, long markposition1, long markposition2, char direction, double globalramp)
 {
     long i;
     long fadpos[3];
     double fade;
+
+    auto apply_fade = [](long pos, long framesm1, float *buf, long pchans, double fade) {
+        if (pos < 0 || pos > framesm1)
+            return;
+        for (long c = 0; c < pchans; c++) {
+            buf[(pos * pchans) + c] *= fade;
+        }
+    };
 
     for (i = 0; i < globalramp; i++)
     {
@@ -845,114 +844,118 @@ void karma_buf_change(t_karma *x, t_symbol *s, short ac, t_atom *av)    // " set
 
 // karma_setloop method (defered?)
 // pete says: i know this proof-of-concept branching is horrible, will rewrite soon...
-void karma_setloop_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv)   // " setloop ..... "
+void karma_setloop_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv)
 {
-    t_bool callerid = false;                // identify caller of 'karma_buf_values_internal()'
-    t_symbol *loop_points_sym = 0;
-    long loop_points_flag;                  // specify start/end loop points: 0 = in phase, 1 = in samples, 2 = in milliseconds (default)
-    double templow, temphigh, temphightemp;
+    t_bool callerid = false; // identify caller of 'karma_buf_values_internal()'
+    t_symbol *loop_points_sym = NULL;
+    long loop_points_flag = 2; // 0 = phase, 1 = samples, 2 = ms (default)
+    double templow = -1.0;
+    double temphigh = -1.0;
 
-    // !! if just "setloop" with no additional args...
-    // ...message will reset loop points to min / max !!
-    loop_points_flag = 2;
-    templow = -1.;
-    temphigh = -1.;
-    
-    // maximum length message (3 atoms after 'setloop') = " setloop ...
-    // ... 0::float::loop start/size [1::float::loop end] [2::symbol::loop points type] "
-    
+    // Helper lambdas for symbol/unit parsing
+    auto is_phase = [](t_symbol *sym) {
+        return sym == ps_phase || sym == gensym("PHASE") || sym == gensym("ph");
+    };
+    auto is_samples = [](t_symbol *sym) {
+        return sym == ps_samples || sym == gensym("SAMPLES") || sym == gensym("samps");
+    };
+    auto is_ms = [](t_symbol *sym) {
+        return sym == ps_milliseconds || sym == gensym("MS") || sym == gensym("ms");
+    };
+
+    // Parse third argument: loop points type
     if (argc >= 3) {
-        
-        if (argc > 3)
-            object_warn((t_object *) x, "too many arguments for %s message, truncating to first three args", s->s_name);
-        
-        if (atom_gettype(argv + 2) == A_SYM) {
-            loop_points_sym = atom_getsym(argv + 2);
-            if ( (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph")) )// phase
-                loop_points_flag = 0;
-            else if ( (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps")) )// samps
-                loop_points_flag = 1;
-            else                                            // ms / anything
-                loop_points_flag = 2;
-        } else if (atom_gettype(argv + 2) == A_LONG) {      // can just be int
-            loop_points_flag = atom_getlong(argv + 2);
-        } else if (atom_gettype(argv + 2) == A_FLOAT) {     // convert if error float
-            loop_points_flag = (long)atom_getfloat(argv + 2);
-        } else {
-            object_warn((t_object *) x, "%s message does not understand arg no.3, using milliseconds for args 1 & 2", s->s_name);
-            loop_points_flag = 2;                           // default ms
+        if (argc > 3) {
+            object_warn((t_object *)x, "too many arguments for %s message, truncating to first three args", s->s_name);
         }
-        
+        t_atom *arg2 = argv + 2;
+        switch (atom_gettype(arg2)) {
+            case A_SYM:
+                loop_points_sym = atom_getsym(arg2);
+                if (is_phase(loop_points_sym))
+                    loop_points_flag = 0;
+                else if (is_samples(loop_points_sym))
+                    loop_points_flag = 1;
+                else
+                    loop_points_flag = 2;
+                break;
+            case A_LONG:
+                loop_points_flag = atom_getlong(arg2);
+                break;
+            case A_FLOAT:
+                loop_points_flag = (long)atom_getfloat(arg2);
+                break;
+            default:
+                object_warn((t_object *)x, "%s message does not understand arg no.3, using milliseconds for args 1 & 2", s->s_name);
+                loop_points_flag = 2;
+                break;
+        }
         loop_points_flag = CLAMP(loop_points_flag, 0, 2);
-        
     }
-    
+
+    // Parse second argument: loop end
     if (argc >= 2) {
-        
-        if (atom_gettype(argv + 1) == A_FLOAT) {
-            temphigh = atom_getfloat(argv + 1);
-            if (temphigh < 0.) {
-                object_warn((t_object *) x, "loop maximum cannot be less than 0., resetting");
-            }   // !! do maximum check in karma_buf_values_internal() !!
-        } else if (atom_gettype(argv + 1) == A_LONG) {
-            temphigh = (double)atom_getlong(argv + 1);
-            if (temphigh < 0.) {
-                object_warn((t_object *) x, "loop maximum cannot be less than 0., resetting");
-            }   // !! do maximum check in karma_buf_values_internal() !!
-        } else if ( (atom_gettype(argv + 1) == A_SYM) && (argc < 3) ) {
-            loop_points_sym = atom_getsym(argv + 1);
-            if ( (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph")) )// phase
+        t_atom *arg1 = argv + 1;
+        if (atom_gettype(arg1) == A_FLOAT) {
+            temphigh = atom_getfloat(arg1);
+            if (temphigh < 0.0) {
+                object_warn((t_object *)x, "loop maximum cannot be less than 0., resetting");
+            }
+        } else if (atom_gettype(arg1) == A_LONG) {
+            temphigh = (double)atom_getlong(arg1);
+            if (temphigh < 0.0) {
+                object_warn((t_object *)x, "loop maximum cannot be less than 0., resetting");
+            }
+        } else if (atom_gettype(arg1) == A_SYM && argc < 3) {
+            loop_points_sym = atom_getsym(arg1);
+            if (is_phase(loop_points_sym))
                 loop_points_flag = 0;
-            else if ( (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps")) )// samps
+            else if (is_samples(loop_points_sym))
                 loop_points_flag = 1;
-            else if ( (loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS")) || (loop_points_sym == gensym("ms")) )// ms
+            else if (is_ms(loop_points_sym))
                 loop_points_flag = 2;
             else {
-                object_warn((t_object *) x, "%s message does not understand arg no.2, setting to milliseconds", s->s_name);
+                object_warn((t_object *)x, "%s message does not understand arg no.2, setting to milliseconds", s->s_name);
                 loop_points_flag = 2;
             }
         } else {
-            object_warn((t_object *) x, "%s message does not understand arg no.2, setting unit to maximum", s->s_name);
+            object_warn((t_object *)x, "%s message does not understand arg no.2, setting unit to maximum", s->s_name);
         }
     }
-    
+
+    // Parse first argument: loop start
     if (argc >= 1) {
-        
-        if (atom_gettype(argv + 0) == A_FLOAT) {
-            if (temphigh < 0.) {
-                temphightemp = temphigh;
-                temphigh = atom_getfloat(argv + 0);
-                templow = temphightemp;
+        t_atom *arg0 = argv + 0;
+        if (atom_gettype(arg0) == A_FLOAT) {
+            if (temphigh < 0.0) {
+                double temp = temphigh;
+                temphigh = atom_getfloat(arg0);
+                templow = temp;
             } else {
-                templow = atom_getfloat(argv + 0);
-                if (templow < 0.) {
-                    object_warn((t_object *) x, "loop minimum cannot be less than 0., setting to 0.");
-                    templow = 0.;
-                }   // !! do maximum check in karma_buf_values_internal() !!
+                templow = atom_getfloat(arg0);
+                if (templow < 0.0) {
+                    object_warn((t_object *)x, "loop minimum cannot be less than 0., setting to 0.");
+                    templow = 0.0;
+                }
             }
-        } else if (atom_gettype(argv + 0) == A_LONG) {
-            if (temphigh < 0.) {
-                temphightemp = temphigh;
-                temphigh = (double)atom_getlong(argv + 0);
-                templow = temphightemp;
+        } else if (atom_gettype(arg0) == A_LONG) {
+            if (temphigh < 0.0) {
+                double temp = temphigh;
+                temphigh = (double)atom_getlong(arg0);
+                templow = temp;
             } else {
-                templow = (double)atom_getlong(argv + 0);
-                if (templow < 0.) {
-                    object_warn((t_object *) x, "loop minimum cannot be less than 0., setting to 0.");
-                    templow = 0.;
-                }   // !! do maximum check in karma_buf_values_internal() !!
+                templow = (double)atom_getlong(arg0);
+                if (templow < 0.0) {
+                    object_warn((t_object *)x, "loop minimum cannot be less than 0., setting to 0.");
+                    templow = 0.0;
+                }
             }
         } else {
-            object_warn((t_object *) x, "%s message does not understand arg no.1, resetting loop point", s->s_name);
+            object_warn((t_object *)x, "%s message does not understand arg no.1, resetting loop point", s->s_name);
         }
-        
     }
-/*
-    // dev
-    post("%s message:", s->s_name);
-*/
+
     karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
-    
 }
 
 void karma_setloop(t_karma *x, t_symbol *s, short ac, t_atom *av)   // " setloop ..... "
