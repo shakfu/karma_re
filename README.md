@@ -41,6 +41,8 @@ The complexity score of 3397 is literally off the charts (`I only wish I were ki
 
 - [x] converted to .cpp temporarily to benefit from lambda functions during refactoring
 
+- [x] converted `t_ptr_int` to  shorter and more understandable `long` type
+
 - [x] refactor some of the smaller functions if possible
 
 - [x] added `control_state` and `human_state` enums to make state changes clearer.

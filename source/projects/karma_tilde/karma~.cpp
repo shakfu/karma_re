@@ -16,7 +16,6 @@ typedef enum  {
 } control_state;
 
 
-
 typedef enum  {
     HUMAN_STATE_STOP    = 0,
     HUMAN_STATE_PLAY    = 1,
@@ -25,6 +24,7 @@ typedef enum  {
     HUMAN_STATE_APPEND  = 4,
     HUMAN_STATE_INITIAL = 5,
 } human_state;
+
 
 struct t_karma {
     
