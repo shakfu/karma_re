@@ -167,7 +167,7 @@ static inline double ease_switchramp(double y1, double snrfade, t_ptr_int snrtyp
 }
 
 // easing function for buffer read
-static inline void ease_bufoff(t_ptr_int framesm1, float *b, t_ptr_int pchans, t_ptr_int markposition, char direction, double globalramp)
+static inline void ease_bufoff(t_ptr_int framesm1, float *buf, t_ptr_int pchans, t_ptr_int markposition, char direction, double globalramp)
 {
     long i, fadpos;
     
@@ -177,19 +177,19 @@ static inline void ease_bufoff(t_ptr_int framesm1, float *b, t_ptr_int pchans, t
         
         if ( !((fadpos < 0) || (fadpos > framesm1)) )
         {
-            b[fadpos * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
+            buf[fadpos * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
             
             if (pchans > 1)
             {
-                b[(fadpos * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
+                buf[(fadpos * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
                 
                 if (pchans > 2)
                 {
-                    b[(fadpos * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
+                    buf[(fadpos * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
                     
                     if (pchans > 3)
                     {
-                        b[(fadpos * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
+                        buf[(fadpos * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
                     }
                 }
             }
