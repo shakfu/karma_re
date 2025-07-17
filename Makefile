@@ -1,9 +1,12 @@
+PKG_NAME := "karma"
+ROOTDIR := $(shell pwd)
 HOMEBREW := $(shell brew --prefix)
 CLANG_TIDY := $(HOMEBREW)/opt/llvm/bin/clang-tidy
 C74_INCLUDES := source/max-sdk-base/c74support
 MAX_INCLUDES := $(C74_INCLUDES)/max-includes
 MSP_INCLUDES := $(C74_INCLUDES)/msp-includes
 HOMEBREW_INCLUDES := $(HOMEBREW)/include
+MAX_VERSIONS := 8 9
 
 define tidy-target
 @$(CLANG_TIDY) '$1' -- \
@@ -33,6 +36,24 @@ dev: clean
 tidy:
 	$(call tidy-target,source/projects/karma_tilde/karma~.c)
 
+link:
+	$(call section,"symlink to Max 'Packages' Directories")
+	@for MAX_VERSION in $(MAX_VERSIONS); do \
+		MAX_DIR="Max $${MAX_VERSION}" ; \
+		PACKAGES="$(HOME)/Documents/$${MAX_DIR}/Packages" ; \
+		THIS_PACKAGE="$${PACKAGES}/$(PKG_NAME)" ; \
+		if [ -d "$${PACKAGES}" ]; then \
+			echo "symlinking to $${THIS_PACKAGE}" ; \
+			if ! [ -L "$${THIS_PACKAGE}" ]; then \
+				ln -s "$(ROOTDIR)" "$${THIS_PACKAGE}" ; \
+				echo "... symlink created" ; \
+			else \
+				echo "... symlink already exists" ; \
+			fi \
+		fi \
+	done
+
 clean:
 	@rm -rf build externals
+
 
