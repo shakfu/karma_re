@@ -1401,7 +1401,6 @@ void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long v
 
         x->speedconnect = count[1];         // speed is 2nd inlet
         object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
-        //post("karma~_v1.5_mono");
         
         if (!x->initinit) {
             karma_select_size(x, 1.);
@@ -1418,6 +1417,8 @@ void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long v
 //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //
 //  //  //  //  //  //  //  //  (crazy) PERFORM ROUTINES    //  //  //  //  //  //  //  //  //
 //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //
+
+
 
 
 // mono perform
