@@ -193,7 +193,6 @@ static inline void ease_bufoff(long framesm1, float *buf, long pchans, long mark
 // easing function for buffer write
 static inline void ease_bufon(long framesm1, float *buf, long pchans, long markposition1, long markposition2, char direction, double globalramp)
 {
-    long i;
     long fadpos[3];
     double fade;
 
@@ -205,7 +204,7 @@ static inline void ease_bufon(long framesm1, float *buf, long pchans, long markp
         }
     };
 
-    for (i = 0; i < globalramp; i++)
+    for (long i = 0; i < globalramp; i++)
     {
         fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
         fadpos[0] = (markposition1 - direction) - (direction * i);
@@ -1072,12 +1071,10 @@ void karma_assist(t_karma *x, void *b, long m, long a, char *s)
                         strncpy_zero(s, "(signal) Record Input 1 / messages to karma~", 256);
                 } else {
                     snprintf_zero(s, 256, "(signal) Record Input %ld", dummy);
-                    // @in 0 @type signal @digest Audio Inlet(s)... (object arg #2)
                 }
                 break;
             case 1:
                 strncpy_zero(s, "(signal/float) Speed Factor (1. == normal speed)", 256);
-                    // @in 1 @type signal_or_float @digest Speed Factor (1. = normal speed, < 1. = slower, > 1. = faster)
                 break;
             case 2:
                 break;
@@ -1090,18 +1087,15 @@ void karma_assist(t_karma *x, void *b, long m, long a, char *s)
                     strncpy_zero(s, "(signal) Audio Output", 256);
                 else
                     snprintf_zero(s, 256, "(signal) Audio Output %ld", dummy);
-                    // @out 0 @type signal @digest Audio Outlet(s)... (object arg #2)
                 break;
             case 1:
                 if (synclet)
                     strncpy_zero(s, "(signal) Sync Outlet (current position 0..1)", 256);
-                    // @out 1 @type signal @digest if chosen (@syncout 1) Sync Outlet (current position 0..1)
                 else
                     strncpy_zero(s, "List: current position (float 0..1) play state (int 0/1) record state (int 0/1) start position (float ms) end position (float ms) window size (float ms) current state (int 0=stop 1=play 2=record 3=overdub 4=append 5=initial)", 512);
                 break;
             case 2:
                 strncpy_zero(s, "List: current position (float 0..1) play state (int 0/1) record state (int 0/1) start position (float ms) end position (float ms) window size (float ms) current state (int 0=stop 1=play 2=record 3=overdub 4=append 5=initial)", 512);
-                    // @out 2 @type list @digest Data Outlet (current position (float 0..1) play state (int 0/1) record state (int 0/1) start position (float ms) end position (float ms) window size (float ms) current state (int 0=stop 1=play 2=record 3=overdub 4=append 5=initial))
                 break;
         }
     }
@@ -1118,62 +1112,8 @@ void karma_float(t_karma *x, double speedfloat)
         x->speedfloat = speedfloat;
     }
 }
-/*
-void karma_select_internal(t_karma *x, double selectionstart, double selectionlength)
-{
-    long bfrmaesminusone;
-    double setloopsize;
 
-    double minsampsnorm = x->bvsnorm * 0.5;         // half vectorsize samples minimum as normalised value  // !! buffer sr !!
-    x->selstart = selectionstart;
-    x->selection = (selectionlength < minsampsnorm) ? minsampsnorm : selectionlength;
 
-    // for dealing with selection-out-of-bounds logic:
-
-    if (!x->loopdetermine)
-    {
-        setloopsize = x->maxloop - x->minloop;
-
-        if (x->directionorig < 0)   // if originally in reverse
-        {
-            bfrmaesminusone = x->bframes - 1;
-            
-            x->startloop = CLAMP( (bfrmaesminusone - x->maxloop) + (x->selstart * x->maxloop), bfrmaesminusone - x->maxloop, bfrmaesminusone );
-            x->endloop = x->startloop + (x->selection * x->maxloop);
-
-            if (x->endloop > bfrmaesminusone) {
-                x->endloop = (bfrmaesminusone - setloopsize) + (x->endloop - bfrmaesminusone);
-                x->wrapflag = 1;
-            } else {
-                x->wrapflag = 0;    // selection-in-bounds
-            }
-            
-        } else {                    // if originally forwards
-
-            x->startloop = CLAMP( selectionstart * x->maxloop, x->minloop, x->maxloop );
-            x->endloop = x->startloop + (x->selection * setloopsize);
-            
-            if (x->endloop > x->maxloop) {
-                x->endloop = x->endloop - setloopsize;
-                x->wrapflag = 1;
-            } else {
-                x->wrapflag = 0;    // selection-in-bounds
-            }
-            
-        }
-    }
-}
-
-void karma_select_start(t_karma *x, double positionstart)
-{
-    karma_select_internal(x, positionstart, x->selection);
-}
-
-void karma_select_size(t_karma *x, double duration)
-{
-    karma_select_internal(x, x->selstart, duration);
-}
-*/
 void karma_select_start(t_karma *x, double positionstart)   // positionstart = "position" float message
 {
     long bfrmaesminusone, setloopsize;
@@ -1349,25 +1289,8 @@ void karma_record(t_karma *x)
     x->statecontrol = sc;
     x->statehuman = sh;
 }
-/*
-// store initial loop recording points on command - pointless
-void karma_initial_points(t_karma *x, t_bool force)
-{
-    if (force) {    // "resetloop force" or "setloop reset force"
-        x->initiallow = x->minloop;                 // in samples...
-        x->initialhigh = x->maxloop;                // ...
-    } else {        // "resetloop" or "setloop reset"
-        if (x->recordinit) {
-            if (x->loopdetermine) {
-                if (x->recendmark) {
-                    x->initiallow = x->minloop;     // in samples...
-                    x->initialhigh = x->maxloop;    // ...
-                }
-            }
-        }
-    }
-}
-*/
+
+
 void karma_append(t_karma *x)
 {
     if (x->recordinit) {
@@ -1389,21 +1312,8 @@ void karma_overdub(t_karma *x, double amplitude)
 {
     x->overdubamp = CLAMP(amplitude, 0.0, 1.0);
 }
-/*
-void karma_jump(t_karma *x, double jumpposition)
-{
-    if (x->initinit) {
-        if ((x->loopdetermine) && (!x->record)) {  // if (!((x->loopdetermine) && (!x->record))) ...
-                                                // ... ?? ...
-        } else {
-            x->statecontrol = 8;
-            x->jumphead = jumpposition;
-//          x->statehuman = 1;                  // ??
-            x->stopallowed = 1;
-        }
-    }
-}
-*/
+
+
 void karma_jump(t_karma *x, double jumpposition)
 {
     if (x->initinit) {
@@ -1416,7 +1326,7 @@ void karma_jump(t_karma *x, double jumpposition)
     }
 }
 
-//  //  //
+
 
 t_max_err karma_syncout_set(t_karma *x, t_object *attr, long argc, t_atom *argv)
 {
@@ -1432,15 +1342,8 @@ t_max_err karma_syncout_set(t_karma *x, t_object *attr, long argc, t_atom *argv)
 
     return 0;
 }
-/*
-t_max_err karma_buf_notify(t_karma *x, t_symbol *s, t_symbol *msg, void *sndr, void *dat)
-{
-    if (msg == ps_buffer_modified)
-        x->buf_modified = true;
-    
-    return buffer_ref_notify(x->buf, s, msg, sndr, dat);
-}
-*/
+
+
 t_max_err karma_buf_notify(t_karma *x, t_symbol *s, t_symbol *msg, void *sndr, void *dat)
 {
 //  t_symbol *bufnamecheck = (t_symbol *)object_method((t_object *)sndr, gensym("getname"));
