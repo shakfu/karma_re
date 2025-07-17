@@ -1,5 +1,31 @@
 #include "karma.h"
 
+typedef enum  {
+    CONTROL_STATE_ZERO                  = 0 ,
+    CONTROL_STATE_RECORD_INITIAL_LOOP   = 1,
+    CONTROL_STATE_RECORD_ALTERNATE      = 2,
+    CONTROL_STATE_RECORD_OFF            = 3,
+    CONTROL_STATE_PLAY_ALTERNATE        = 4,
+    CONTROL_STATE_PLAY_ON               = 5,
+    CONTROL_STATE_STOP_ALTERNATE        = 6,
+    CONTROL_STATE_STOP                  = 7,
+    CONTROL_STATE_JUMP                  = 8,
+    CONTROL_STATE_APPEND                = 9,
+    CONTROL_STATE_APPEND_SPECIAL        = 10,
+    CONTROL_STATE_RECORD_ON             = 11,
+} control_state;
+
+
+
+typedef enum  {
+    HUMAN_STATE_STOP    = 0,
+    HUMAN_STATE_PLAY    = 1,
+    HUMAN_STATE_RECORD  = 2,
+    HUMAN_STATE_OVERDUB = 3,
+    HUMAN_STATE_APPEND  = 4,
+    HUMAN_STATE_INITIAL = 5,
+} human_state;
+
 struct t_karma {
     
     t_pxobject      k_ob;
@@ -45,31 +71,31 @@ struct t_karma {
     long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
 
-    long   bframes;    // number of buffer frames (number of floats long the buffer is for a single channel)
-    long   bchans;     // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
-    long   ochans;     // number of object audio channels (object arg #2: 1 / 2 / 4)
-    long   nchans;     // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
+    long   bframes;         // number of buffer frames (number of floats long the buffer is for a single channel)
+    long   bchans;          // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
+    long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
+    long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
-    long   interpflag; // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
-    long   recordhead; // record head position in samples
-    long   minloop;    // the minimum point in loop so far that has been requested as start point (in samples), is static value
-    long   maxloop;    // the overall loop end recorded so far (in samples), is static value
-    long   startloop;  // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
-    long   endloop;    // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
-    long   pokesteps;  // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
-    long   recordfade; // fade counter for recording in samples
-    long   playfade;   // fade counter for playback in samples
-    long   globalramp; // general fade time (for both recording and playback) in samples
-    long   snrramp;    // switch n ramp time in samples ("generally much shorter than general fade time")
-    long   snrtype;    // switch n ramp curve option choice (!! why is this a long ??)
-    long   reportlist; // right list outlet report granularity in ms (!! why is this a long ??)
-    long   initiallow; // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
-    long   initialhigh;// store inital loop high point after 'initial loop' (default -1 causes default phase 1)
+    long   interpflag;      // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
+    long   recordhead;      // record head position in samples
+    long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
+    long   maxloop;         // the overall loop end recorded so far (in samples), is static value
+    long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
+    long   recordfade;      // fade counter for recording in samples
+    long   playfade;        // fade counter for playback in samples
+    long   globalramp;      // general fade time (for both recording and playback) in samples
+    long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
+    long   snrtype;         // switch n ramp curve option choice (!! why is this a long ??)
+    long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
+    long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
+    long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
-    char    statecontrol;   // master looper state control (not 'human state')
-    char    statehuman;     // master looper state human logic (not 'statecontrol') (0=stop, 1=play, 2=record, 3=overdub, 4=append 5=initial)
+    control_state statecontrol; // master looper state control (not 'human state')
+    human_state   statehuman;   // master looper state human logic (not 'statecontrol') (0=stop, 1=play, 2=record, 3=overdub, 4=append 5=initial)
 
     char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
     char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
@@ -366,7 +392,9 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
         x->overdubprev = x->overdubamp = x->speedfloat = 1.0;
         x->islooped = x->snrtype = x->interpflag = 1;
         x->playfadeflag = x->recfadeflag = x->recordinit = x->initinit = x->append = x->jumpflag = 0;
-        x->statecontrol = x->statehuman = x->stopallowed = 0;
+        x->statecontrol = CONTROL_STATE_ZERO;
+        x->statehuman = HUMAN_STATE_STOP;
+        x->stopallowed = 0;
         x->go = x->triginit = 0;
         x->directionprev = x->directionorig = x->recordprev = x->record = x->alternateflag = x->recendmark = 0;
         x->pokesteps = x->wrapflag = x->loopdetermine = 0;
@@ -1198,9 +1226,9 @@ void karma_stop(t_karma *x)
 {
     if (x->initinit) {
         if (x->stopallowed) {
-            x->statecontrol = x->alternateflag ? 6 : 7;
+            x->statecontrol = x->alternateflag ? CONTROL_STATE_STOP_ALTERNATE : CONTROL_STATE_STOP;
             x->append = 0;
-            x->statehuman = 0;
+            x->statehuman = HUMAN_STATE_STOP;
             x->stopallowed = 0;
         }
     }
@@ -1209,16 +1237,16 @@ void karma_stop(t_karma *x)
 void karma_play(t_karma *x)
 {
     if ((!x->go) && (x->append)) {
-        x->statecontrol = 9;
+        x->statecontrol = CONTROL_STATE_APPEND;
         x->snrfade = 0.0;   // !! should disable ??
     } else if ((x->record) || (x->append)) {
-        x->statecontrol = x->alternateflag ? 4 : 3;
+        x->statecontrol = x->alternateflag ? CONTROL_STATE_PLAY_ALTERNATE : CONTROL_STATE_PLAY_ON;
     } else {
-        x->statecontrol = 5;
+        x->statecontrol = CONTROL_STATE_PLAY_ON;
     }
     
     x->go = 1;
-    x->statehuman = 1;
+    x->statehuman = HUMAN_STATE_STOP;
     x->stopallowed = 1;
 }
 
@@ -1240,7 +1268,8 @@ void karma_record(t_karma *x)
     };
 
     t_buffer_obj *buf = buffer_ref_getobject(x->buf);
-    char sc = 0, sh = x->statehuman;
+    control_state sc = CONTROL_STATE_ZERO;
+    human_state sh = x->statehuman;
     t_bool record = x->record;
     t_bool go = x->go;
     t_bool altflag = x->alternateflag;
@@ -1251,24 +1280,24 @@ void karma_record(t_karma *x)
 
     if (record) {
         if (altflag) {
-            sc = 2;
-            sh = 3;
+            sc = CONTROL_STATE_RECORD_ALTERNATE;
+            sh = HUMAN_STATE_OVERDUB;
         } else {
-            sc = 3;
-            sh = (sh == 3) ? 1 : 2;
+            sc = CONTROL_STATE_RECORD_OFF;
+            sh = (sh == HUMAN_STATE_OVERDUB) ? HUMAN_STATE_PLAY : HUMAN_STATE_RECORD;
         }
     } else if (append) {
         if (go) {
             if (altflag) {
-                sc = 2;
-                sh = 3;
+                sc = CONTROL_STATE_RECORD_ALTERNATE;
+                sh = HUMAN_STATE_OVERDUB;
             } else {
-                sc = 10;
-                sh = 4;
+                sc = CONTROL_STATE_APPEND_SPECIAL;
+                sh = HUMAN_STATE_APPEND;
             }
         } else {
-            sc = 1;
-            sh = 5;
+            sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
+            sh = HUMAN_STATE_INITIAL;
         }
     } else if (!go) {
         init = 1;
@@ -1277,11 +1306,11 @@ void karma_record(t_karma *x)
             long bframes = x->bframes;
             clear_buffer(buf, bframes, rchans);
         }
-        sc = 1;
-        sh = 5;
+        sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
+        sh = HUMAN_STATE_INITIAL;
     } else {
-        sc = 11;
-        sh = 3;
+        sc = CONTROL_STATE_RECORD_ON;
+        sh = HUMAN_STATE_OVERDUB;
     }
 
     x->go = 1;
@@ -1297,8 +1326,8 @@ void karma_append(t_karma *x)
         if ((!x->append) && (!x->loopdetermine)) {
             x->append = 1;
             x->maxloop = (x->bframes - 1);
-            x->statecontrol = 9;
-            x->statehuman = 4;
+            x->statecontrol = CONTROL_STATE_APPEND;
+            x->statehuman = HUMAN_STATE_APPEND;
             x->stopallowed = 1;
         } else {
             object_error((t_object *)x, "can't append if already appending, or during 'initial-loop', or if buffer~ is full");
@@ -1318,9 +1347,9 @@ void karma_jump(t_karma *x, double jumpposition)
 {
     if (x->initinit) {
         if ( !((x->loopdetermine)&&(!x->record)) ) {
-            x->statecontrol = 8;
+            x->statecontrol = CONTROL_STATE_JUMP;
             x->jumphead = CLAMP(jumpposition, 0., 1.);  // for now phase only, TODO - ms & samples
-//          x->statehuman = 1;                          // no - 'jump' is whatever 'statehuman' currently is (most likely 'play')
+//          x->statehuman = HUMAN_STATE_PLAY;           // no - 'jump' is whatever 'statehuman' currently is (most likely 'play')
             x->stopallowed = 1;
         }
     }
@@ -1406,11 +1435,13 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
     long    n = vcount;
     short   speedinlet  = x->speedconnect;
     
+    control_state statecontrol;
+
     double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
     double speed, speedfloat, osamp1, overdubamp, overdubprev, ovdbdif, selstart, selection;
     double o1prev, o1dif, frac, snrfade, globalramp, snrramp, writeval1, coeff1, recin1;
     t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
-    char direction, directionprev, directionorig, statecontrol, playfadeflag, recfadeflag, recendmark;
+    char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
     long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
     long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
     long initiallow, initialhigh;
@@ -1478,68 +1509,89 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
     
     switch (statecontrol)   // "all-in-one 'switch' statement to catch and handle all(most) messages" - raja
     {
-        case 0:             // case 0: zero
+        case CONTROL_STATE_ZERO:
+            // case 0: zero
             break;
-        case 1:             // case 1: record initial loop
+        case CONTROL_STATE_RECORD_INITIAL_LOOP:
+            // case 1: record initial loop
             record = go = triginit = loopdetermine = 1;
-            recordfade = recfadeflag = playfade = playfadeflag = statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
+            recordfade = recfadeflag = playfade = playfadeflag = 0;
             break;
-        case 2:             // case 2: record alternateflag (wtf is 'alternateflag' ('rectoo') ?!)  // in to OVERDUB ??
+        case CONTROL_STATE_RECORD_ALTERNATE:
+            // case 2: record alternateflag (wtf is 'alternateflag' ('rectoo') ?!)
+            // in to OVERDUB ??
             recendmark = 3;
             record = recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
+            playfade = recordfade = 0;
             break;
-        case 3:             // case 3: record off regular
+        case CONTROL_STATE_RECORD_OFF:
+            // case 3: record off regular
             recfadeflag = 1;
             playfadeflag = 3;
-            playfade = recordfade = statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
+            playfade = recordfade = 0;
             break;
-        case 4:             // case 4: play alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // out of OVERDUB ??
+        case CONTROL_STATE_PLAY_ALTERNATE:
+            // case 4: play alternateflag (wtf is 'alternateflag' ('rectoo') ?!)
+            // out of OVERDUB ??
             recendmark = 2;
             recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
+            playfade = recordfade = 0;
             break;
-        case 5:             // case 5: play on regular
+        case CONTROL_STATE_PLAY_ON:
+            // case 5: play on regular
             triginit = 1;   // ?!?!
-            statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
             break;
-        case 6:             // case 6: stop alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // after OVERDUB ??
+        case CONTROL_STATE_STOP_ALTERNATE:
+            // case 6: stop alternateflag (wtf is 'alternateflag' ('rectoo') ?!)
+            // after OVERDUB ??
             playfade = recordfade = 0;
             recendmark = playfadeflag = recfadeflag = 1;
-            statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
             break;
-        case 7:             // case 7: stop regular
+        case CONTROL_STATE_STOP:
+            // case 7: stop regular
             if (record) {
                 recordfade = 0;
                 recfadeflag = 1;
             }
             playfade = 0;
             playfadeflag = 1;
-            statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
             break;
-        case 8:             // case 8: jump
+        case CONTROL_STATE_JUMP:
+            // case 8: jump
             if (record) {
                 recordfade = 0;
                 recfadeflag = 2;
             }
             playfade = 0;
             playfadeflag = 2;
-            statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
             break;
-        case 9:             // case 9: append
+        case CONTROL_STATE_APPEND:
+            // case 9: append
             playfadeflag = 4;   // !! modified in perform loop switch case(s) for playing behind append
             playfade = 0;
-            statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
             break;
-        case 10:            // case 10: special case append (what is special about it ?!)   // in to RECORD / OVERDUB ??
+        case CONTROL_STATE_APPEND_SPECIAL:
+            // case 10: special case append (what is special about it ?!)   // in to RECORD / OVERDUB ??
             record = loopdetermine = alternateflag = 1;
             snrfade = 0.0;
-            recordfade = recfadeflag = statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
+            recordfade = recfadeflag = 0;
             break;
-        case 11:            // case 11: record on regular (when ?! not looped ?!)
+        case CONTROL_STATE_RECORD_ON:
+            // case 11: record on regular (when ?! not looped ?!)
             playfadeflag = 3;
             recfadeflag = 5;
-            recordfade = playfade = statecontrol = 0;
+            statecontrol = CONTROL_STATE_ZERO;
+            recordfade = playfade = 0;
             break;          // !!
     }
 

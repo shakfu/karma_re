@@ -1,18 +1,22 @@
----
 # see: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
-Language:        C
-# BasedOnStyle:  WebKit
+---
+# We'll use defaults from the LLVM style, but with 4 columns indentation.
+BasedOnStyle: WebKit
+IndentWidth: 4
+---
+Language: Cpp
 AccessModifierOffset: -4
+# ---
+# Language: C
 # maybe
-AlignAfterOpenBracket: Align
-#AlignAfterOpenBracket: DontAlign
-AlignConsecutiveMacros: false
-# maybe
+AlignAfterOpenBracket: AlwaysBreak
 AlignConsecutiveAssignments: false
-AlignConsecutiveDeclarations: false
-AlignEscapedNewlines: Right
+AlignConsecutiveDeclarations: true
+AlignConsecutiveMacros: true
+AlignEscapedNewlines: LeftWithLastLine
 # maybe -> add AlignAfterOperator 
-AlignOperands:   false
+# AlignOperands:   AlignAfterOperator
+AlignOperands:   DontAlign
 # maybe -> true
 AlignTrailingComments: true
 AllowAllArgumentsOnNextLine: true
@@ -56,7 +60,7 @@ BreakConstructorInitializersBeforeComma: false
 BreakConstructorInitializers: BeforeComma
 BreakAfterJavaFieldAnnotations: false
 BreakStringLiterals: true
-ColumnLimit:     79
+ColumnLimit:     80
 CommentPragmas:  '^ IWYU pragma:'
 CompactNamespaces: false
 ConstructorInitializerAllOnOneLineOrOnePerLine: false

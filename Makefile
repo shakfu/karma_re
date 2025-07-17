@@ -15,7 +15,7 @@ define tidy-target
 endef
 
 
-.phony: all build dev tidy clean
+.phony: all build dev format tidy complexity link clean
 
 all: build
 
@@ -32,6 +32,9 @@ dev: clean
 		cmake .. \
 			&& \
 		cmake --build . --config Debug
+
+format:
+	@clang-format -i source/projects/karma_tilde/karma\~.cpp
 
 tidy:
 	$(call tidy-target,source/projects/karma_tilde/karma~.cpp)

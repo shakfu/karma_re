@@ -1,10 +1,10 @@
 # karma analysis
 
-This project is a variant of [karma~1.6](https://github.com/rconstanzo/karma) which will try to make some changes to the code to reduce its complexity and hopefully make it more understandable.
+This project analyzes the mono version of Rodrigo Constanzo's & raja's & pete's [karma~1.6](https://github.com/rconstanzo/karma) and  will try to make some changes to the code to reduce its complexity and hopefully make it more understandable.
 
-There will probably be some experiements with some code-editors to try to refactor some of the more complex functions.
+There will probably be some experiements with some AI code-editors to try to refactor some of the more complex functions.
 
-Analysis of gnu-complexity of the abbreviated (only mono perform) version is:
+Initial analysis of complexity (via gnu-complexity) of only mono perform version is:
 
 ```text
 NOTE: proc ease_bufoff in file source/projects/karma_tilde/karma~.c line 170
@@ -39,4 +39,10 @@ The complexity score of 3397 is literally off the charts (`I only wish I were ki
 
 - [x] removed stereo and quad perform functions
 
-- [ ] refactor some of the smaller functions if possible
+- [x] converted to .cpp temporarily to benefit from lambda functions during refactoring
+
+- [x] refactor some of the smaller functions if possible
+
+- [x] added `control_state` and `human_state` enums to make state changes clearer.
+
+
