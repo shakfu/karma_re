@@ -1,8 +1,8 @@
 # karma analysis
 
-This project is a variant of [karma~1.6](https://github.com/rconstanzo/karma) which tries to make some changes to make the code more understandable.
+This project is a variant of [karma~1.6](https://github.com/rconstanzo/karma) which will try to make some changes to the code to reduce its complexity and hopefully make it more understandable.
 
-I will try to use some AI editors to try to refactor some of the more complex functions.
+There will probably be some experiements with some code-editors to try to refactor some of the more complex functions.
 
 Analysis of gnu-complexity of the abbreviated (only mono perform) version is:
 
@@ -38,3 +38,5 @@ The complexity score of 3397 is literally off the charts (`I only wish I were ki
 - [x] analyzed with `clang-tidy` and commented out not active parts of code.
 
 - [x] removed stereo and quad perform functions
+
+- [ ] refactor some of the smaller functions if possible
