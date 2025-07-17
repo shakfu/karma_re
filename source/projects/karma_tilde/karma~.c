@@ -220,58 +220,36 @@ static inline void ease_bufon(long framesm1, float *buf, long pchans, long markp
 }
 
 // interpolation points
-static inline void interp_index(long playhead, long *indx0, long *indx1, long *indx2, long *indx3, char direction, char directionorig, long maxloop, long framesm1)
+// Helper to wrap index for forward or reverse looping
+static inline long wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
+    if (directionorig >= 0) {
+        // Forward: wrap between 0 and maxloop
+        if (idx < 0)
+            return (maxloop + 1) + idx;
+        else if (idx > maxloop)
+            return idx - (maxloop + 1);
+        else
+            return idx;
+    } else {
+        // Reverse: wrap between (framesm1 - maxloop) and framesm1
+        long min = framesm1 - maxloop;
+        if (idx < min)
+            return framesm1 - (min - idx);
+        else if (idx > framesm1)
+            return min + (idx - framesm1);
+        else
+            return idx;
+    }
+}
+
+static inline void interp_index(
+    long playhead, long *indx0, long *indx1, long *indx2, long *indx3,
+    char direction, char directionorig, long maxloop, long framesm1)
 {
-    *indx0 = playhead - direction;                                   // calc of indecies for interpolations
-    
-    if (directionorig >= 0) {
-        if (*indx0 < 0) {
-            *indx0 = (maxloop + 1) + *indx0;
-        } else if (*indx0 > maxloop) {
-            *indx0 = *indx0 - (maxloop + 1);
-        }
-    } else {
-        if(*indx0 < (framesm1 - maxloop)) {
-            *indx0 = framesm1 - ((framesm1 - maxloop) - *indx0);
-        } else if (*indx0 > framesm1) {
-            *indx0 = (framesm1 - maxloop) + (*indx0 - framesm1);
-        }
-    }
-    
+    *indx0 = wrap_index(playhead - direction, directionorig, maxloop, framesm1);
     *indx1 = playhead;
-    *indx2 = playhead + direction;
-    
-    if (directionorig >= 0) {
-        if (*indx2 < 0) {
-            *indx2 = (maxloop + 1) + *indx2;
-        } else if (*indx2 > maxloop) {
-            *indx2 = *indx2 - (maxloop + 1);
-        }
-    } else {
-        if (*indx2 < (framesm1 - maxloop)) {
-            *indx2 = framesm1 - ((framesm1 - maxloop) - *indx2);
-        } else if (*indx2 > framesm1) {
-            *indx2 = (framesm1 - maxloop) + (*indx2 - framesm1);
-        }
-    }
-    
-    *indx3 = *indx2 + direction;
-    
-    if (directionorig >= 0) {
-        if(*indx3 < 0) {
-            *indx3 = (maxloop + 1) + *indx3;
-        } else if (*indx3 > maxloop) {
-            *indx3 = *indx3 - (maxloop + 1);
-        }
-    } else {
-        if (*indx3 < (framesm1 - maxloop)) {
-            *indx3 = framesm1 - ((framesm1 - maxloop) - *indx3);
-        } else if (*indx3 > framesm1) {
-            *indx3 = (framesm1 - maxloop) + (*indx3 - framesm1);
-        }
-    }
-    
-    return;
+    *indx2 = wrap_index(playhead + direction, directionorig, maxloop, framesm1);
+    *indx3 = wrap_index(*indx2 + direction, directionorig, maxloop, framesm1);
 }
 
 
