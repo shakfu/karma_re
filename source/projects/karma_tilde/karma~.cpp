@@ -26,6 +26,24 @@ typedef enum  {
 } human_state;
 
 
+typedef enum  {
+    SR_TYPE_LINEAR         = 0,
+    SR_TYPE_SINE_EASE_IN   = 1,
+    SR_TYPE_CUBIC_EASE_IN  = 2,
+    SR_TYPE_CUBIC_EASE_OUT = 3,
+    SR_TYPE_EXP_EASE_IN    = 4,
+    SR_TYPE_EXP_EASE_OUT   = 5,
+    SR_TYPE_EXP_EASE_INOUT = 6,
+} switchramp_type;
+
+
+typedef enum {
+    INTERP_LINEAR   = 0,
+    INTERP_CUBIC    = 1,
+    INTERP_SPLINE   = 3,
+} interp_type;
+
+
 struct t_karma {
     
     t_pxobject      k_ob;
@@ -76,7 +94,7 @@ struct t_karma {
     long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
     long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
-    long   interpflag;      // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
+    interp_type   interpflag;   // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
     long   recordhead;      // record head position in samples
     long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
     long   maxloop;         // the overall loop end recorded so far (in samples), is static value
@@ -87,7 +105,7 @@ struct t_karma {
     long   playfade;        // fade counter for playback in samples
     long   globalramp;      // general fade time (for both recording and playback) in samples
     long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
-    long   snrtype;         // switch n ramp curve option choice (!! why is this a long ??)
+    switchramp_type   snrtype;  // switch n ramp curve option choice
     long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
     long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
     long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
@@ -164,29 +182,37 @@ static inline double ease_record(double y1, char updwn, double globalramp, long 
 }
 
 // easing function for switch & ramp
-static inline double ease_switchramp(double y1, double snrfade, long snrtype)
+static inline double ease_switchramp(double y1, double snrfade, switchramp_type snrtype)
 {
+
     switch (snrtype)
     {
-        case 0: y1  = y1 * (1.0 - snrfade);                                             // case 0 = linear
+        case SR_TYPE_LINEAR:
+            y1  = y1 * (1.0 - snrfade);
             break;
-        case 1: y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));                     // case 1 = sine ease in
+        case SR_TYPE_SINE_EASE_IN:
+            y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));
             break;
-        case 2: y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));                       // case 2 = cubic ease in
+        case SR_TYPE_CUBIC_EASE_IN:
+            y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));
             break;
-        case 3: snrfade = snrfade - 1;
-                y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));                   // case 3 = cubic ease out
+        case SR_TYPE_CUBIC_EASE_OUT:
+            snrfade = snrfade - 1;
+            y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));
             break;
-        case 4: snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
-                y1  = y1 * (1.0 - snrfade);                                             // case 4 = exponential ease in
+        case SR_TYPE_EXP_EASE_IN: 
+            snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
+            y1  = y1 * (1.0 - snrfade);
             break;
-        case 5: snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
-                y1  = y1 * (1.0 - snrfade);                                             // case 5 = exponential ease out
+        case SR_TYPE_EXP_EASE_OUT:
+            snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
+            y1  = y1 * (1.0 - snrfade);
             break;
-        case 6: if ((snrfade > 0) && (snrfade < 0.5))
-                    y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
-                else if ((snrfade < 1) && (snrfade > 0.5))
-                    y1 = y1 * (1.0 - (-0.5 * pow(2, ((-20 * snrfade) + 10)) + 1));      // case 6 = exponential ease in/out
+        case SR_TYPE_EXP_EASE_INOUT:
+            if ((snrfade > 0) && (snrfade < 0.5))
+                y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
+            else if ((snrfade < 1) && (snrfade > 0.5))
+                y1 = y1 * (1.0 - (-0.5 * pow(2, ((-20 * snrfade) + 10)) + 1));
             break;
     }
     return  y1;
@@ -390,7 +416,9 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
         x->vs = sys_getblksize();
         x->vsnorm = x->vs / x->ssr;
         x->overdubprev = x->overdubamp = x->speedfloat = 1.0;
-        x->islooped = x->snrtype = x->interpflag = 1;
+        x->snrtype = SR_TYPE_SINE_EASE_IN;
+        x->interpflag = INTERP_CUBIC;
+        x->islooped = 1;
         x->playfadeflag = x->recfadeflag = x->recordinit = x->initinit = x->append = x->jumpflag = 0;
         x->statecontrol = CONTROL_STATE_ZERO;
         x->statehuman = HUMAN_STATE_STOP;
@@ -1437,13 +1465,15 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
     short   speedinlet  = x->speedconnect;
     
     control_state statecontrol;
+    switchramp_type snrtype;
+    interp_type interp;
 
     double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
     double speed, speedfloat, osamp1, overdubamp, overdubprev, ovdbdif, selstart, selection;
     double o1prev, o1dif, frac, snrfade, globalramp, snrramp, writeval1, coeff1, recin1;
     t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
     char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
-    long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
+    long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans;
     long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
     long initiallow, initialhigh;
     
@@ -1871,9 +1901,9 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 if (record) {           // if recording do linear-interp else...
                     osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
                 } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                    if (interp == 1)
+                    if (interp == INTERP_CUBIC)
                         osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                    else if (interp == 2)
+                    else if (interp == INTERP_SPLINE)
                         osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                     else
                         osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);

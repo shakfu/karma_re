@@ -30,7 +30,7 @@ Score | ln-ct | nc-lns| file-name(line): proc-name
 total nc-lns     1185
 ```
 
-The complexity score of 3397 is literally off the charts (`I only wish I were kidding.` territory).
+The complexity score of 3397 for `karma_mono_perform` is literally off the charts.
 
 
 ## Changes so far
@@ -39,12 +39,14 @@ The complexity score of 3397 is literally off the charts (`I only wish I were ki
 
 - [x] removed stereo and quad perform functions
 
-- [x] converted to .cpp temporarily to benefit from lambda functions during refactoring
+- [x] converted to `.cpp` temporarily to benefit from lambda functions during refactoring
 
 - [x] converted `t_ptr_int` to  shorter and more understandable `long` type
 
 - [x] refactor some of the smaller functions if possible
 
 - [x] added `control_state` and `human_state` enums to make state changes clearer.
+
+- [x] add `switchramp_type` and `interp_type` enums
 
 

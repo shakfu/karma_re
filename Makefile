@@ -60,6 +60,10 @@ link:
 		fi \
 	done
 
+cpd:
+	@pmd cpd --minimum-tokens 50 --language cpp source/projects/karma_tilde/karma\~.cpp
+
+
 clean:
 	@rm -rf build externals
 
