@@ -34,14 +34,14 @@ dev: clean
 		cmake --build . --config Debug
 
 format:
-	@clang-format -i source/projects/karma_tilde/karma\~.cpp
+	@clang-format -i source/projects/karma_tilde/karma\~.c
 
 tidy:
-	$(call tidy-target,source/projects/karma_tilde/karma~.cpp)
+	$(call tidy-target,source/projects/karma_tilde/karma~.c)
 
 
 complexity:
-	@complexity source/projects/karma_tilde/karma\~.cpp
+	@complexity source/projects/karma_tilde/karma\~.c
 
 link:
 	$(call section,"symlink to Max 'Packages' Directories")
@@ -61,7 +61,7 @@ link:
 	done
 
 cpd:
-	@pmd cpd --minimum-tokens 50 --language cpp source/projects/karma_tilde/karma\~.cpp
+	@pmd cpd --minimum-tokens 50 --language cpp source/projects/karma_tilde/karma\~.c
 
 
 clean:
