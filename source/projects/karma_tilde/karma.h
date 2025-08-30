@@ -175,3 +175,23 @@ void karma_determine_record_state(t_bool record, t_bool altflag, t_bool append, 
                                   char *sc, char *sh);
 void karma_clear_buffer_channels(float *b, long bframes, long rchans);
 
+// Helper functions for karma_buf_change_internal refactoring
+t_bool karma_validate_buffer(t_karma *x, t_symbol *bufname);
+void karma_parse_loop_points_sym(t_symbol *loop_points_sym, long *loop_points_flag);
+void karma_parse_numeric_arg(t_atom *arg, double *value);
+void karma_process_argc_args(t_karma *x, t_symbol *s, short argc, t_atom *argv, 
+                            double *templow, double *temphigh, long *loop_points_flag);
+
+// Helper functions for further karma_mono_perform refactoring  
+void karma_handle_ipoke_recording(float *b, long pchans, long playhead, long *recordhead, 
+                                  double recin1, double overdubamp, double globalramp, long recordfade, 
+                                  char recfadeflag, double *pokesteps, double *writeval1, t_bool *dirt);
+void karma_handle_recording_fade(double globalramp, long *recordfade, char *recfadeflag, 
+                                 t_bool *record, t_bool *triginit, char *jumpflag);
+void karma_handle_jump_logic(double jumphead, double maxhead, long frames, char directionorig,
+                            double *accuratehead, char *jumpflag, double *snrfade, t_bool record,
+                            float *b, long pchans, long *recordhead, char direction, double globalramp,
+                            long *recordfade, char *recfadeflag, t_bool *triginit);
+double karma_process_audio_interpolation(float *b, long pchans, double accuratehead, 
+                                         interp_type_t interp, t_bool record);
+

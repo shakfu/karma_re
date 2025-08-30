@@ -730,191 +730,34 @@ void karma_buf_values_internal(t_karma *x, double templow, double temphigh, long
 // pete says: i know this proof-of-concept branching is horrible, will rewrite soon...
 void karma_buf_change_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv)   // " set ..... "
 {
-    t_bool callerid;
-    t_buffer_obj *buf_temp;
-    t_symbol *b;
-    t_symbol *b_temp = 0;
-    t_symbol *loop_points_sym = 0;
-    long loop_points_flag;              // specify start/end loop points: 0 = in phase, 1 = in samples, 2 = in milliseconds (default)
-    double templow, temphigh, temphightemp;
+    t_bool callerid = true;  // identify caller of 'karma_buf_values_internal()'
+    t_symbol *bufname;
+    long loop_points_flag;
+    double templow, temphigh;
 
-    // error check .....
-
-    b_temp  = atom_getsym(argv + 0);    // already arg checked to be A_SYM in karma_buf_change()
+    // Get buffer name from first argument (already validated in karma_buf_change)
+    bufname = atom_getsym(argv + 0);
     
-    if (b_temp == ps_nothing)
-    {
-        object_error((t_object *)x, "%s requires a valid buffer~ declaration (none found)", s->s_name);
+    // Validate buffer and set up references
+    if (!karma_validate_buffer(x, bufname)) {
         return;
-        
-    } else {
-        // !! this "buf_temp" assignment is to check for a valid buffer, so that karma~ playback...
-        // ...continues with main assigned "buf" even if symbol given is in error !!
-        // this is slow (& expensive ??) - there must be a better way ??
-        // use 'buffer_ref_exists()' instead ??
-        
-        x->bufname_temp = b_temp;
-        
-        if (!x->buf_temp)
-            x->buf_temp = buffer_ref_new((t_object *)x, b_temp);
-        else                            // this should never get called here ??
-            buffer_ref_set(x->buf_temp, b_temp);
-        
-        buf_temp        = buffer_ref_getobject(x->buf_temp);
-        
-        if (buf_temp == NULL) {
-            
-            object_warn((t_object *)x, "cannot find any buffer~ named %s, ignoring", b_temp->s_name);
-            x->buf_temp = 0;            // should dspfree the temp buffer here ??
-            object_free(x->buf_temp);   // ... ??
-            return;
+    }
+    
+    // Reset player state
+    x->directionorig = 0;
+    x->maxhead = x->playhead = 0.0;
+    x->recordhead = -1;
 
-        } else {
-            
-            x->buf_temp = 0;            // should dspfree the temp buffer here ??
-            object_free(x->buf_temp);   // ... ??
-            callerid = true;            // identify caller of 'karma_buf_values_internal()'
-            
-            b  = atom_getsym(argv + 0); // already arg checked
-
-            x->bufname = b;
-            
-            if (!x->buf) {
-                x->buf = buffer_ref_new((t_object *)x, b);
-            } else {
-                buffer_ref_set(x->buf, b);
-            }
-
-            //buf = buffer_ref_getobject(x->buf);   // no need in this method
-
-            // !! if just "set [buffername]" with no additional args and [buffername]...
-            // ...already set, message will reset loop points to min / max !!
-            loop_points_flag = 2;
-            templow = -1.0;
-            temphigh = -1.0;
-
-    // ..... do it .....
-
-            // ... obviously pete is a bit confused about all this ...
-            x->directionorig = 0;
-            x->maxhead = x->playhead = 0.0;             // x->maxhead = x->playhead;    // ?? 'takeover' should be an option ??
-            x->recordhead = -1;
-
-            // maximum length message (4[6] atoms after 'set') = " set ...
-            // ... 0::symbol::buffername [1::float::loop start] [2::float::loop end] [3::symbol::loop points type] ...
-            // ... [4::symbol::offset 5::int::channel # offset] "   // <<-- not implemented "offset n" yet
-
-            if (argc >= 4) {
-                
-                if (atom_gettype(argv + 3) == A_SYM) {
-                    loop_points_sym = atom_getsym(argv + 3);
-                    if (loop_points_sym == ps_dummy)    // !! "dummy" is silent++, move on...
-                        loop_points_flag = 2;
-                    else if ( (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph")) )// phase
-                        loop_points_flag = 0;
-                    else if ( (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps")) )// samps
-                        loop_points_flag = 1;
-                    else                                // ms or anything
-                        loop_points_flag = 2;
-                } else if (atom_gettype(argv + 3) == A_LONG) {      // can just be int 0..2
-                    loop_points_flag = atom_getlong(argv + 3);
-                } else if (atom_gettype(argv + 3) == A_FLOAT) {     // convert if error float
-                    loop_points_flag = (long)atom_getfloat(argv + 3);
-                } else {
-                    object_warn((t_object *) x, "%s message does not understand arg no.4, using milliseconds for args 2 & 3", s->s_name);
-                    loop_points_flag = 2;               // default ms
-                }
-
-                loop_points_flag = CLAMP(loop_points_flag, 0, 2);
-
-            }
-            
-            if (argc >= 3) {
-                
-                if (atom_gettype(argv + 2) == A_FLOAT) {
-                    temphigh = atom_getfloat(argv + 2);
-                    if (temphigh < 0.) {
-                        object_warn((t_object *) x, "loop maximum cannot be less than 0., resetting");
-                    }   // !! do maximum check in karma_buf_values_internal() !!
-                } else if (atom_gettype(argv + 2) == A_LONG) {
-                    temphigh = (double)atom_getlong(argv + 2);
-                    if (temphigh < 0.) {
-                        object_warn((t_object *) x, "loop maximum cannot be less than 0., resetting");
-                    }   // !! do maximum check in karma_buf_values_internal() !!
-                } else if ( (atom_gettype(argv + 2) == A_SYM) && (argc < 4) ) {
-                    loop_points_sym = atom_getsym(argv + 2);
-                    if (loop_points_sym == ps_dummy)    // !! "dummy" is silent++, move on...
-                        loop_points_flag = 2;
-                    else if ( (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph")) )// phase
-                            loop_points_flag = 0;
-                    else if ( (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps")) )// samps
-                            loop_points_flag = 1;
-                    else if ( (loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS")) || (loop_points_sym == gensym("ms")) )// ms
-                            loop_points_flag = 2;
-                    else {
-                        object_warn((t_object *) x, "%s message does not understand arg no.3, setting to milliseconds", s->s_name);
-                        loop_points_flag = 2;
-                    }
-                } else {
-                    object_warn((t_object *) x, "%s message does not understand arg no.3, setting unit to maximum", s->s_name);
-                }
-            }
-                
-            if (argc >= 2) {
-
-                if (atom_gettype(argv + 1) == A_FLOAT) {
-                    if (temphigh < 0.) {
-                        temphightemp = temphigh;
-                        temphigh = atom_getfloat(argv + 1);
-                        templow = temphightemp;
-                    } else {
-                        templow = atom_getfloat(argv + 1);
-                        if (templow < 0.) {
-                            object_warn((t_object *) x, "loop minimum cannot be less than 0., setting to 0.");
-                            templow = 0.;
-                        }   // !! do maximum check in karma_buf_values_internal() !!
-                    }
-                } else if (atom_gettype(argv + 1) == A_LONG) {
-                    if (temphigh < 0.) {
-                        temphightemp = temphigh;
-                        temphigh = (double)atom_getlong(argv + 1);
-                        templow = temphightemp;
-                    } else {
-                        templow = (double)atom_getlong(argv + 1);
-                        if (templow < 0.) {
-                            object_warn((t_object *) x, "loop minimum cannot be less than 0., setting to 0.");
-                            templow = 0.;
-                        }   // !! do maximum check in karma_buf_values_internal() !!
-                    }
-                } else if (atom_gettype(argv + 1) == A_SYM) {
-                    loop_points_sym = atom_getsym(argv + 1);
-                    if (loop_points_sym == ps_dummy)    // !! "dummy" is silent++, move on...
-                        loop_points_flag = 2;           // default ms
-                    else if (loop_points_sym == ps_originalloop) {      // "reset" message not callable with 'set [buffername]' message
-                        object_warn((t_object *) x, "%s message does not understand 'buffername' followed by %s message, ignoring", s->s_name, loop_points_sym);
-                        object_warn((t_object *) x, "(the %s message cannot be used whilst changing buffer~ reference", loop_points_sym);
-                        object_warn((t_object *) x, "use %s %s message or just %s message instead)", gensym("setloop"), ps_originalloop, gensym("resetloop"));
-                        return;         // exit         // or should just default to ms here and carry on ??
-                    } else
-                        object_warn((t_object *) x, "%s message does not understand arg no.2, setting loop points to minimum (and maximum)", s->s_name);
-                } else {
-                    object_warn((t_object *) x, "%s message does not understand arg no.2, setting loop points to defaults", s->s_name);
-                }
-                
-            }
-/*
-            // dev
-            post("%s message: buffer~ %s", s->s_name, b->s_name);
-*/
-            karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
-
-            //x->buf_temp = 0;                          // should (dsp)free here and not earlier ??
-            //object_free(x->buf_temp);
-
-        }
-
+    // Process arguments to extract loop points and settings
+    karma_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
+    
+    // Check for early return flag from ps_originalloop handling
+    if (templow == -999.0) {
+        return;
     }
 
+    // Apply the buffer values
+    karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
 }
 
 void karma_buf_change(t_karma *x, t_symbol *s, short ac, t_atom *av)    // " set ..... "
@@ -2217,71 +2060,10 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 else
                     recin1 += ((double)b[playhead * pchans]) * overdubamp;
                 
-                if (recordhead < 0) {
-                    recordhead = playhead;
-                    pokesteps = 0.0;
-                    // NOTUSED: recplaydif = writeval1 = 0.0;
-                }
-                
-                if (recordhead == playhead) {
-                    writeval1 += recin1;
-                    pokesteps += 1.0;
-                } else {
-                    if (pokesteps > 1.0) {              // linear-averaging for speed < 1x
-                        writeval1 = writeval1 / pokesteps;
-                        pokesteps = 1.0;
-                    }
-                    b[recordhead * pchans] = writeval1;
-                    recplaydif = (double)(playhead - recordhead);
-                    if (recplaydif > 0) {               // linear-interpolation for speed > 1x
-                        coeff1 = (recin1 - writeval1) / recplaydif;
-                        for (i = recordhead + 1; i < playhead; i++) {
-                            writeval1 += coeff1;
-                            b[i * pchans] = writeval1;
-                        }
-                    } else {
-                        coeff1 = (recin1 - writeval1) / recplaydif;
-                        for (i = recordhead - 1; i > playhead; i--) {
-                            writeval1 -= coeff1;
-                            b[i * pchans] = writeval1;
-                        }
-                    }
-                    writeval1 = recin1;
-                }
-                recordhead = playhead;
-                dirt = 1;
+                karma_handle_ipoke_recording(b, pchans, playhead, &recordhead, recin1, overdubamp, globalramp, recordfade, recfadeflag, &pokesteps, &writeval1, &dirt);
             }                                           // ~ipoke end
             
-            if (globalramp)                             // realtime ramps for record on/off
-            {
-                if(recordfade < globalramp)
-                {
-                    recordfade++;
-                    if ((recfadeflag) && (recordfade >= globalramp))
-                    {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                            recordfade = 0;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-            } else {
-                if (recfadeflag) {
-                    if (recfadeflag == 2) {
-                        triginit = jumpflag = 1;
-                    } else if (recfadeflag == 5) {
-                        record = 1;
-                    } else {
-                        record = 0;
-                    }
-                    recfadeflag = 0;
-                }
-            }
+            karma_handle_recording_fade(globalramp, &recordfade, &recfadeflag, &record, &triginit, &jumpflag);
             directionprev = direction;
             
         } else {                                        // initial loop creation
@@ -2291,24 +2073,8 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
             {
                 if (triginit)
                 {
-                    if (jumpflag)                       // jump
-                    {
-                        if (directionorig >= 0) {
-                            accuratehead = jumphead * maxhead;      // !! maxhead !!
-                        } else {
-                            accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                        }
-                        jumpflag = 0;
-                        snrfade = 0.0;
-                        if (record) {
-                            if (globalramp) {
-                                ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                recordfade = 0;
-                            }
-                            recfadeflag = 0;
-                            recordhead = -1;
-                        }
-                        triginit = 0;
+                    if (jumpflag) {
+                        karma_handle_jump_logic(jumphead, maxhead, frames, directionorig, &accuratehead, &jumpflag, &snrfade, record, b, pchans, &recordhead, direction, globalramp, &recordfade, &recfadeflag, &triginit);
                     } else if (append) {                // append
                         snrfade = 0.0;
                         triginit = 0;
@@ -2761,5 +2527,279 @@ zero:
     }
     
     return;
+}
+
+// ============================== Helper Functions ==============================
+
+// Helper functions for karma_buf_change_internal refactoring
+
+t_bool karma_validate_buffer(t_karma *x, t_symbol *bufname)
+{
+    t_buffer_obj *buf_temp;
+    
+    if (bufname == ps_nothing) {
+        object_error((t_object *)x, "requires a valid buffer~ declaration (none found)");
+        return false;
+    }
+    
+    x->bufname_temp = bufname;
+    
+    if (!x->buf_temp) {
+        x->buf_temp = buffer_ref_new((t_object *)x, bufname);
+    } else {
+        buffer_ref_set(x->buf_temp, bufname);
+    }
+    
+    buf_temp = buffer_ref_getobject(x->buf_temp);
+    
+    if (buf_temp == NULL) {
+        object_warn((t_object *)x, "cannot find any buffer~ named %s, ignoring", bufname->s_name);
+        x->buf_temp = 0;
+        object_free(x->buf_temp);
+        return false;
+    }
+    
+    x->buf_temp = 0;
+    object_free(x->buf_temp);
+    
+    // Set up the main buffer reference
+    x->bufname = bufname;
+    if (!x->buf) {
+        x->buf = buffer_ref_new((t_object *)x, bufname);
+    } else {
+        buffer_ref_set(x->buf, bufname);
+    }
+    
+    return true;
+}
+
+void karma_parse_loop_points_sym(t_symbol *loop_points_sym, long *loop_points_flag)
+{
+    if (loop_points_sym == ps_dummy) {
+        *loop_points_flag = 2;
+    } else if ((loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph"))) {
+        *loop_points_flag = 0;
+    } else if ((loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps"))) {
+        *loop_points_flag = 1;
+    } else if ((loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS")) || (loop_points_sym == gensym("ms"))) {
+        *loop_points_flag = 2;
+    } else {
+        *loop_points_flag = 2; // default to milliseconds
+    }
+}
+
+void karma_parse_numeric_arg(t_atom *arg, double *value)
+{
+    if (atom_gettype(arg) == A_FLOAT) {
+        *value = atom_getfloat(arg);
+    } else if (atom_gettype(arg) == A_LONG) {
+        *value = (double)atom_getlong(arg);
+    }
+}
+
+void karma_process_argc_args(t_karma *x, t_symbol *s, short argc, t_atom *argv, 
+                            double *templow, double *temphigh, long *loop_points_flag)
+{
+    t_symbol *loop_points_sym = 0;
+    double temphightemp;
+    
+    // Initialize defaults
+    *loop_points_flag = 2; // milliseconds
+    *templow = -1.0;
+    *temphigh = -1.0;
+    
+    // Process argument 4 (index 3) - loop points type
+    if (argc >= 4) {
+        if (atom_gettype(argv + 3) == A_SYM) {
+            loop_points_sym = atom_getsym(argv + 3);
+            karma_parse_loop_points_sym(loop_points_sym, loop_points_flag);
+        } else if (atom_gettype(argv + 3) == A_LONG) {
+            *loop_points_flag = atom_getlong(argv + 3);
+        } else if (atom_gettype(argv + 3) == A_FLOAT) {
+            *loop_points_flag = (long)atom_getfloat(argv + 3);
+        } else {
+            object_warn((t_object *)x, "%s message does not understand arg no.4, using milliseconds for args 2 & 3", s->s_name);
+            *loop_points_flag = 2;
+        }
+        *loop_points_flag = CLAMP(*loop_points_flag, 0, 2);
+    }
+    
+    // Process argument 3 (index 2) - high value or loop points type
+    if (argc >= 3) {
+        if (atom_gettype(argv + 2) == A_FLOAT || atom_gettype(argv + 2) == A_LONG) {
+            karma_parse_numeric_arg(argv + 2, temphigh);
+            if (*temphigh < 0.) {
+                object_warn((t_object *)x, "loop maximum cannot be less than 0., resetting");
+            }
+        } else if (atom_gettype(argv + 2) == A_SYM && argc < 4) {
+            loop_points_sym = atom_getsym(argv + 2);
+            karma_parse_loop_points_sym(loop_points_sym, loop_points_flag);
+        } else {
+            object_warn((t_object *)x, "%s message does not understand arg no.3, setting unit to maximum", s->s_name);
+        }
+    }
+    
+    // Process argument 2 (index 1) - low value or special handling
+    if (argc >= 2) {
+        if (atom_gettype(argv + 1) == A_FLOAT || atom_gettype(argv + 1) == A_LONG) {
+            if (*temphigh < 0.) {
+                temphightemp = *temphigh;
+                karma_parse_numeric_arg(argv + 1, temphigh);
+                *templow = temphightemp;
+            } else {
+                karma_parse_numeric_arg(argv + 1, templow);
+                if (*templow < 0.) {
+                    object_warn((t_object *)x, "loop minimum cannot be less than 0., setting to 0.");
+                    *templow = 0.;
+                }
+            }
+        } else if (atom_gettype(argv + 1) == A_SYM) {
+            loop_points_sym = atom_getsym(argv + 1);
+            if (loop_points_sym == ps_dummy) {
+                *loop_points_flag = 2;
+            } else if (loop_points_sym == ps_originalloop) {
+                object_warn((t_object *)x, "%s message does not understand 'buffername' followed by %s message, ignoring", s->s_name, loop_points_sym->s_name);
+                object_warn((t_object *)x, "(the %s message cannot be used whilst changing buffer~ reference", loop_points_sym->s_name);
+                object_warn((t_object *)x, "use %s %s message or just %s message instead)", gensym("setloop")->s_name, ps_originalloop->s_name, gensym("resetloop")->s_name);
+                // Set flag to indicate early return needed
+                *templow = -999.0; // Special flag value
+                return;
+            } else {
+                object_warn((t_object *)x, "%s message does not understand arg no.2, setting loop points to minimum (and maximum)", s->s_name);
+            }
+        } else {
+            object_warn((t_object *)x, "%s message does not understand arg no.2, setting loop points to defaults", s->s_name);
+        }
+    }
+}
+
+// Helper functions for further karma_mono_perform refactoring
+
+void karma_handle_ipoke_recording(float *b, long pchans, long playhead, long *recordhead, 
+                                  double recin1, double overdubamp, double globalramp, long recordfade, 
+                                  char recfadeflag, double *pokesteps, double *writeval1, t_bool *dirt)
+{
+    long i;
+    double recplaydif, coeff1;
+    
+    // Handle first record head initialization
+    if (*recordhead < 0) {
+        *recordhead = playhead;
+        *pokesteps = 0.0;
+    }
+    
+    if (*recordhead == playhead) {
+        *writeval1 += recin1;
+        *pokesteps += 1.0;
+    } else {
+        if (*pokesteps > 1.0) {              // linear-averaging for speed < 1x
+            *writeval1 = *writeval1 / *pokesteps;
+            *pokesteps = 1.0;
+        }
+        b[*recordhead * pchans] = *writeval1;
+        recplaydif = (double)(playhead - *recordhead);
+        if (recplaydif > 0) {               // linear-interpolation for speed > 1x
+            coeff1 = (recin1 - *writeval1) / recplaydif;
+            for (i = *recordhead + 1; i < playhead; i++) {
+                *writeval1 += coeff1;
+                b[i * pchans] = *writeval1;
+            }
+        } else {
+            coeff1 = (recin1 - *writeval1) / recplaydif;
+            for (i = *recordhead - 1; i > playhead; i--) {
+                *writeval1 -= coeff1;
+                b[i * pchans] = *writeval1;
+            }
+        }
+        *writeval1 = recin1;
+    }
+    *recordhead = playhead;
+    *dirt = 1;
+}
+
+void karma_handle_recording_fade(double globalramp, long *recordfade, char *recfadeflag, 
+                                 t_bool *record, t_bool *triginit, char *jumpflag)
+{
+    if (globalramp) {                             // realtime ramps for record on/off
+        if (*recordfade < globalramp) {
+            (*recordfade)++;
+            if ((*recfadeflag) && (*recordfade >= globalramp)) {
+                if (*recfadeflag == 2) {
+                    *triginit = *jumpflag = 1;
+                    *recordfade = 0;
+                } else if (*recfadeflag == 5) {
+                    *record = 1;
+                } else {
+                    *record = 0;
+                }
+                *recfadeflag = 0;
+            }
+        }
+    } else {
+        if (*recfadeflag) {
+            if (*recfadeflag == 2) {
+                *triginit = *jumpflag = 1;
+            } else if (*recfadeflag == 5) {
+                *record = 1;
+            } else {
+                *record = 0;
+            }
+            *recfadeflag = 0;
+        }
+    }
+}
+
+void karma_handle_jump_logic(double jumphead, double maxhead, long frames, char directionorig,
+                            double *accuratehead, char *jumpflag, double *snrfade, t_bool record,
+                            float *b, long pchans, long *recordhead, char direction, double globalramp,
+                            long *recordfade, char *recfadeflag, t_bool *triginit)
+{
+    if (*jumpflag) {                       // jump
+        if (directionorig >= 0) {
+            *accuratehead = jumphead * maxhead;      // !! maxhead !!
+        } else {
+            *accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
+        }
+        *jumpflag = 0;
+        *snrfade = 0.0;
+        if (record) {
+            if (globalramp) {
+                ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                *recordfade = 0;
+            }
+            *recfadeflag = 0;
+            *recordhead = -1;
+        }
+        *triginit = 0;
+    }
+}
+
+double karma_process_audio_interpolation(float *b, long pchans, double accuratehead, 
+                                         interp_type_t interp, t_bool record)
+{
+    long playhead = (long)accuratehead;
+    double frac = accuratehead - playhead;
+    double output = 0.0;
+    
+    if (!record) {           // if recording do linear-interp else...
+        switch (interp) {
+            case INTERP_CUBIC: 
+                // Cubic interpolation would go here
+                output = (double)b[playhead * pchans];
+                break;
+            default: // INTERP_LINEAR
+                if (frac > 0.0) {
+                    output = ((double)b[playhead * pchans] * (1.0 - frac)) + 
+                            ((double)b[(playhead + 1) * pchans] * frac);
+                } else {
+                    output = (double)b[playhead * pchans];
+                }
+                break;
+        }
+    } else {
+        output = (double)b[playhead * pchans];
+    }
+    
+    return output;
 }
 
