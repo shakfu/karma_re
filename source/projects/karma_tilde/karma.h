@@ -74,6 +74,46 @@ and possibly do seperate externals for different elements (e.g. karmaplay~, karm
 
 #include "ext_atomic.h"
 
+// Enum definitions for clearer state management
+typedef enum {
+    CONTROL_STATE_ZERO = 0,              // zero/idle
+    CONTROL_STATE_RECORD_INITIAL = 1,    // record initial loop
+    CONTROL_STATE_RECORD_ALT = 2,        // record alternateflag (into overdub)
+    CONTROL_STATE_RECORD_OFF = 3,        // record off regular
+    CONTROL_STATE_PLAY_ALT = 4,          // play alternateflag (out of overdub)
+    CONTROL_STATE_PLAY_ON = 5,           // play on regular
+    CONTROL_STATE_STOP_ALT = 6,          // stop alternateflag (after overdub)
+    CONTROL_STATE_STOP_REGULAR = 7,      // stop regular
+    CONTROL_STATE_JUMP = 8,              // jump
+    CONTROL_STATE_APPEND = 9,            // append
+    CONTROL_STATE_APPEND_SPECIAL = 10,   // special case append (into record/overdub)
+    CONTROL_STATE_RECORD_ON = 11         // record on regular (non-looped)
+} control_state_t;
+
+typedef enum {
+    HUMAN_STATE_STOP = 0,      // stop
+    HUMAN_STATE_PLAY = 1,      // play
+    HUMAN_STATE_RECORD = 2,    // record
+    HUMAN_STATE_OVERDUB = 3,   // overdub
+    HUMAN_STATE_APPEND = 4,    // append
+    HUMAN_STATE_INITIAL = 5    // initial
+} human_state_t;
+
+typedef enum {
+    SWITCHRAMP_LINEAR = 0,        // linear
+    SWITCHRAMP_SINE_IN = 1,       // sine ease in
+    SWITCHRAMP_CUBIC_IN = 2,      // cubic ease in
+    SWITCHRAMP_CUBIC_OUT = 3,     // cubic ease out
+    SWITCHRAMP_EXPO_IN = 4,       // exponential ease in
+    SWITCHRAMP_EXPO_OUT = 5,      // exponential ease out
+    SWITCHRAMP_EXPO_IN_OUT = 6    // exponential ease in/out
+} switchramp_type_t;
+
+typedef enum {
+    INTERP_LINEAR = 0,   // linear interpolation
+    INTERP_CUBIC = 1,    // cubic interpolation
+    INTERP_SPLINE = 2    // spline interpolation
+} interp_type_t;
 
 typedef struct t_karma t_karma;
 
@@ -117,21 +157,21 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
 
 // Helper functions for karma_mono_perform refactoring
 void karma_process_state_control(t_karma *x, char *statecontrol, t_bool *record, t_bool *go, t_bool *triginit, 
-                                 t_bool *loopdetermine, t_ptr_int *recordfade, char *recfadeflag, 
-                                 t_ptr_int *playfade, char *playfadeflag, char *recendmark);
-void karma_initialize_perform_vars(t_karma *x, double *accuratehead, t_ptr_int *playhead, double *maxhead, 
+                                 t_bool *loopdetermine, long *recordfade, char *recfadeflag, 
+                                 long *playfade, char *playfadeflag, char *recendmark);
+void karma_initialize_perform_vars(t_karma *x, double *accuratehead, long *playhead, double *maxhead, 
                                    t_bool *wrapflag, double *jumphead, double *pokesteps, double *snrfade, 
-                                   double *globalramp, double *snrramp, t_ptr_int *snrtype, t_ptr_int *interp, 
+                                   double *globalramp, double *snrramp, switchramp_type_t *snrtype, interp_type_t *interp, 
                                    double *speedfloat, double *o1prev, double *o1dif, double *writeval1);
 void karma_handle_direction_change(char directionprev, char direction, t_bool record, double globalramp, 
-                                   t_ptr_int frames, float *b, t_ptr_int pchans, t_ptr_int recordhead, 
-                                   t_ptr_int *recordfade, char *recfadeflag, double *snrfade);
-void karma_handle_record_toggle(t_bool record, t_bool recordprev, double globalramp, t_ptr_int frames, float *b, 
-                                t_ptr_int pchans, t_ptr_int *recordhead, t_ptr_int *recordfade, char *recfadeflag, 
+                                   long frames, float *b, long pchans, long recordhead, 
+                                   long *recordfade, char *recfadeflag, double *snrfade);
+void karma_handle_record_toggle(t_bool record, t_bool recordprev, double globalramp, long frames, float *b, 
+                                long pchans, long *recordhead, long *recordfade, char *recfadeflag, 
                                 double accuratehead, char direction, double speed, double *snrfade, t_bool *dirt);
 
 // Helper functions for karma_record refactoring
 void karma_determine_record_state(t_bool record, t_bool altflag, t_bool append, t_bool go, char statehuman, 
                                   char *sc, char *sh);
-void karma_clear_buffer_channels(float *b, t_ptr_int bframes, t_ptr_int rchans);
+void karma_clear_buffer_channels(float *b, long bframes, long rchans);
 
