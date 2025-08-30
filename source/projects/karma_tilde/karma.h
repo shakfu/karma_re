@@ -113,7 +113,25 @@ void        karma_jump(t_karma *x, double jumpposition);
 void        karma_append(t_karma *x);
 
 void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long vecount, long flags);
-void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
-void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
 void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
+
+// Helper functions for karma_mono_perform refactoring
+void karma_process_state_control(t_karma *x, char *statecontrol, t_bool *record, t_bool *go, t_bool *triginit, 
+                                 t_bool *loopdetermine, t_ptr_int *recordfade, char *recfadeflag, 
+                                 t_ptr_int *playfade, char *playfadeflag, char *recendmark);
+void karma_initialize_perform_vars(t_karma *x, double *accuratehead, t_ptr_int *playhead, double *maxhead, 
+                                   t_bool *wrapflag, double *jumphead, double *pokesteps, double *snrfade, 
+                                   double *globalramp, double *snrramp, t_ptr_int *snrtype, t_ptr_int *interp, 
+                                   double *speedfloat, double *o1prev, double *o1dif, double *writeval1);
+void karma_handle_direction_change(char directionprev, char direction, t_bool record, double globalramp, 
+                                   t_ptr_int frames, float *b, t_ptr_int pchans, t_ptr_int recordhead, 
+                                   t_ptr_int *recordfade, char *recfadeflag, double *snrfade);
+void karma_handle_record_toggle(t_bool record, t_bool recordprev, double globalramp, t_ptr_int frames, float *b, 
+                                t_ptr_int pchans, t_ptr_int *recordhead, t_ptr_int *recordfade, char *recfadeflag, 
+                                double accuratehead, char direction, double speed, double *snrfade, t_bool *dirt);
+
+// Helper functions for karma_record refactoring
+void karma_determine_record_state(t_bool record, t_bool altflag, t_bool append, t_bool go, char statehuman, 
+                                  char *sc, char *sh);
+void karma_clear_buffer_channels(float *b, t_ptr_int bframes, t_ptr_int rchans);
 

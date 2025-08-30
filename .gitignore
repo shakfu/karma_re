@@ -2,6 +2,7 @@
 **/project.xcworkspace
 **/xcshareddata
 **/xcuserdata
+*.claude
 *.dylib
 *.mxe
 *.mxe64
@@ -22,6 +23,7 @@
 .vscode
 __pycache__
 build
+CLAUDE.md
 CMakeFiles
 extensions/*
 externals/*
