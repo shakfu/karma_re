@@ -1512,13 +1512,13 @@ void karma_play(t_karma* x)
         x->snrfade = 0.0; // !! should disable ??
     } else if ((x->record) || (x->append)) {
         x->statecontrol = x->alternateflag ? CONTROL_STATE_PLAY_ALTERNATE
-                                           : CONTROL_STATE_PLAY_ON;
+                                           : CONTROL_STATE_RECORD_OFF;
     } else {
         x->statecontrol = CONTROL_STATE_PLAY_ON;
     }
 
     x->go = 1;
-    x->statehuman = HUMAN_STATE_STOP;
+    x->statehuman = HUMAN_STATE_PLAY;
     x->stopallowed = 1;
 }
 

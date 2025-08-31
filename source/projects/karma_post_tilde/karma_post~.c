@@ -1168,9 +1168,10 @@ void karma_stop(t_karma *x)
 {
     if (x->initinit) {
         if (x->stopallowed) {
-            x->statecontrol = x->alternateflag ? 6 : 7;
+            x->statecontrol = x->alternateflag ? CONTROL_STATE_STOP_ALT
+                                               : CONTROL_STATE_STOP_REGULAR;
             x->append = 0;
-            x->statehuman = 0;
+            x->statehuman = HUMAN_STATE_STOP;
             x->stopallowed = 0;
         }
     }
@@ -1179,143 +1180,93 @@ void karma_stop(t_karma *x)
 void karma_play(t_karma *x)
 {
     if ((!x->go) && (x->append)) {
-        x->statecontrol = 9;
+        x->statecontrol = CONTROL_STATE_APPEND;
         x->snrfade = 0.0;   // !! should disable ??
     } else if ((x->record) || (x->append)) {
-        x->statecontrol = x->alternateflag ? 4 : 3;
+        x->statecontrol = x->alternateflag ? CONTROL_STATE_PLAY_ALT
+                                           : CONTROL_STATE_RECORD_OFF;
     } else {
-        x->statecontrol = 5;
+        x->statecontrol = CONTROL_STATE_PLAY_ON;
     }
     
     x->go = 1;
-    x->statehuman = 1;
+    x->statehuman = HUMAN_STATE_PLAY;
     x->stopallowed = 1;
 }
 
-// Helper function: Determine record state control values
-void karma_determine_record_state(t_bool record, t_bool altflag, t_bool append, t_bool go, char statehuman, 
-                                  char *sc, char *sh)
+
+// Helper to clear buffer
+t_bool _clear_buffer(t_buffer_obj* buf, long bframes, long rchans)
 {
+    float* b = buffer_locksamples(buf);
+    if (!b)
+        return 0;
+    for (long i = 0; i < bframes; i++) {
+        for (long c = 0; c < rchans; c++) {
+            b[i * rchans + c] = 0.0f;
+        }
+    }
+    buffer_setdirty(buf);
+    buffer_unlocksamples(buf);
+    return 1;
+};
+
+void karma_record(t_karma* x)
+{
+    t_buffer_obj* buf = buffer_ref_getobject(x->buf);
+    control_state_t sc = CONTROL_STATE_ZERO;
+    human_state_t sh = x->statehuman;
+    t_bool record   = x->record;
+    t_bool go       = x->go;
+    t_bool altflag  = x->alternateflag;
+    t_bool append   = x->append;
+    t_bool init     = x->recordinit;
+
+    x->stopallowed = 1;
+
     if (record) {
         if (altflag) {
-            *sc = 2;
-            *sh = 3;         // ?? is this wrong?, it is not neccessarily overdub ??
+            sc = CONTROL_STATE_RECORD_ALT;
+            sh = HUMAN_STATE_OVERDUB;
         } else {
-            *sc = 3;
-            *sh = (statehuman == 3) ? 1 : 2; // !! hack !! (but works !!)
+            sc = CONTROL_STATE_RECORD_OFF;
+            sh = (sh == HUMAN_STATE_OVERDUB) ? HUMAN_STATE_PLAY
+                                             : HUMAN_STATE_RECORD;
         }
-    } else {
-        if (append) {
-            if (go) {
-                if (altflag) {
-                    *sc = 2;
-                    *sh = 3; // ?? is this wrong?, it is not neccessarily overdub ??
-                } else {
-                    *sc = 10;// !!
-                    *sh = 4;
-                }
+    } else if (append) {
+        if (go) {
+            if (altflag) {
+                sc = CONTROL_STATE_RECORD_ALT;
+                sh = HUMAN_STATE_OVERDUB;
             } else {
-                *sc = 1;
-                *sh = 5;
+                sc = CONTROL_STATE_APPEND_SPECIAL;
+                sh = HUMAN_STATE_APPEND;
             }
         } else {
-            if (!go) {
-                *sc = 1;
-                *sh = 5;
-            } else {            // !! not 'record', not 'append', is 'go' ??
-                *sc = 11;       // !! ?? seems wrong
-                *sh = 3;        // !! is this overdub ?? seems wrong
-            }
+            sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
+            sh = HUMAN_STATE_INITIAL;
         }
-    }
-}
-
-// Helper function: Clear buffer channels
-void karma_clear_buffer_channels(float *b, long bframes, long rchans)
-{
-    long i;
-    for (i = 0; i < bframes; i++) {
-        if (rchans > 1) {
-            b[i * rchans] = 0.0;
-            b[(i * rchans) + 1] = 0.0;
-            if (rchans > 2) {
-                b[(i * rchans) + 2] = 0.0;
-                if (rchans > 3) {
-                    b[(i * rchans) + 3] = 0.0;
-                }
-            }
-        } else {
-            b[i] = 0.0;
-        }
-    }
-}
-
-void karma_record(t_karma *x)
-{
-    float *b;
-    char sc, sh;
-    t_bool record, go, altflag, append, init;
-    long bframes, rchans;  // !! local 'rchans' = 'nchans' not 'bchans' !!
-    
-    t_buffer_obj *buf = buffer_ref_getobject(x->buf);
-
-    record = x->record;
-    go = x->go;
-    altflag = x->alternateflag;
-    append = x->append;
-    init = x->recordinit;
-    sh = x->statehuman;
-    
-    x->stopallowed = 1;
-    
-    // Determine state control values using helper function
-    karma_determine_record_state(record, altflag, append, go, sh, &sc, &sh);
-    
-    // Handle buffer clearing for initial recording
-    if (!record && !append && !go) {
+    } else if (!go) {
         init = 1;
         if (buf) {
-            rchans = x->bchans;     // !! nchans not bchans = only record onto channel(s) currently used by karma~...
-            bframes = x->bframes;   // ...(leave other channels in tact)    <<-- BOLLOX
-            b = buffer_locksamples(buf);
-            if (!b)
-                goto zero;
-            
-            karma_clear_buffer_channels(b, bframes, rchans);
-            
-            buffer_setdirty(buf);
-            buffer_unlocksamples(buf);
+            long rchans = x->bchans;
+            long bframes = x->bframes;
+            _clear_buffer(buf, bframes, rchans);
         }
+        sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
+        sh = HUMAN_STATE_INITIAL;
+    } else {
+        sc = CONTROL_STATE_RECORD_ON;
+        sh = HUMAN_STATE_OVERDUB;
     }
-    
-    go = 1;
-    x->go = go;
+
+    x->go = 1;
     x->recordinit = init;
     x->statecontrol = sc;
     x->statehuman = sh;
-    
-zero:
-    return;
 }
-/*
-// store initial loop recording points on command - pointless
-void karma_initial_points(t_karma *x, t_bool force)
-{
-    if (force) {    // "resetloop force" or "setloop reset force"
-        x->initiallow = x->minloop;                 // in samples...
-        x->initialhigh = x->maxloop;                // ...
-    } else {        // "resetloop" or "setloop reset"
-        if (x->recordinit) {
-            if (x->loopdetermine) {
-                if (x->recendmark) {
-                    x->initiallow = x->minloop;     // in samples...
-                    x->initialhigh = x->maxloop;    // ...
-                }
-            }
-        }
-    }
-}
-*/
+
+
 void karma_append(t_karma *x)
 {
     if (x->recordinit) {

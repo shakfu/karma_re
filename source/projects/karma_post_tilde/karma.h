@@ -76,18 +76,18 @@ and possibly do seperate externals for different elements (e.g. karmaplay~, karm
 
 // Enum definitions for clearer state management
 typedef enum {
-    CONTROL_STATE_ZERO = 0,              // zero/idle
-    CONTROL_STATE_RECORD_INITIAL = 1,    // record initial loop
-    CONTROL_STATE_RECORD_ALT = 2,        // record alternateflag (into overdub)
-    CONTROL_STATE_RECORD_OFF = 3,        // record off regular
-    CONTROL_STATE_PLAY_ALT = 4,          // play alternateflag (out of overdub)
-    CONTROL_STATE_PLAY_ON = 5,           // play on regular
-    CONTROL_STATE_STOP_ALT = 6,          // stop alternateflag (after overdub)
-    CONTROL_STATE_STOP_REGULAR = 7,      // stop regular
-    CONTROL_STATE_JUMP = 8,              // jump
-    CONTROL_STATE_APPEND = 9,            // append
-    CONTROL_STATE_APPEND_SPECIAL = 10,   // special case append (into record/overdub)
-    CONTROL_STATE_RECORD_ON = 11         // record on regular (non-looped)
+    CONTROL_STATE_ZERO = 0,                 // zero/idle
+    CONTROL_STATE_RECORD_INITIAL_LOOP = 1,  // record initial loop
+    CONTROL_STATE_RECORD_ALT = 2,           // record alternateflag (into overdub)
+    CONTROL_STATE_RECORD_OFF = 3,           // record off regular
+    CONTROL_STATE_PLAY_ALT = 4,             // play alternateflag (out of overdub)
+    CONTROL_STATE_PLAY_ON = 5,              // play on regular
+    CONTROL_STATE_STOP_ALT = 6,             // stop alternateflag (after overdub)
+    CONTROL_STATE_STOP_REGULAR = 7,         // stop regular
+    CONTROL_STATE_JUMP = 8,                 // jump
+    CONTROL_STATE_APPEND = 9,               // append
+    CONTROL_STATE_APPEND_SPECIAL = 10,      // special case append (into record/overdub)
+    CONTROL_STATE_RECORD_ON = 11            // record on regular (non-looped)
 } control_state_t;
 
 typedef enum {
@@ -169,11 +169,6 @@ void karma_handle_direction_change(char directionprev, char direction, t_bool re
 void karma_handle_record_toggle(t_bool record, t_bool recordprev, double globalramp, long frames, float *b, 
                                 long pchans, long *recordhead, long *recordfade, char *recfadeflag, 
                                 double accuratehead, char direction, double speed, double *snrfade, t_bool *dirt);
-
-// Helper functions for karma_record refactoring
-void karma_determine_record_state(t_bool record, t_bool altflag, t_bool append, t_bool go, char statehuman, 
-                                  char *sc, char *sh);
-void karma_clear_buffer_channels(float *b, long bframes, long rchans);
 
 // Helper functions for karma_buf_change_internal refactoring
 t_bool karma_validate_buffer(t_karma *x, t_symbol *bufname);
