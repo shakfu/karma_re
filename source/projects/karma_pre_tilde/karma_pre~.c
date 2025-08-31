@@ -13,7 +13,7 @@ typedef enum {
     CONTROL_STATE_APPEND = 9,
     CONTROL_STATE_APPEND_SPECIAL = 10,
     CONTROL_STATE_RECORD_ON = 11,
-} control_state;
+} control_state_t;
 
 
 typedef enum {
@@ -23,25 +23,25 @@ typedef enum {
     HUMAN_STATE_OVERDUB = 3,
     HUMAN_STATE_APPEND = 4,
     HUMAN_STATE_INITIAL = 5,
-} human_state;
+} human_state_t;
 
 
 typedef enum {
-    SR_TYPE_LINEAR = 0,
-    SR_TYPE_SINE_EASE_IN = 1,
-    SR_TYPE_CUBIC_EASE_IN = 2,
-    SR_TYPE_CUBIC_EASE_OUT = 3,
-    SR_TYPE_EXP_EASE_IN = 4,
-    SR_TYPE_EXP_EASE_OUT = 5,
-    SR_TYPE_EXP_EASE_INOUT = 6,
-} switchramp_type;
+    SWITCHRAMP_LINEAR = 0,
+    SWITCHRAMP_SINE_IN = 1,
+    SWITCHRAMP_CUBIC_IN = 2,
+    SWITCHRAMP_CUBIC_OUT = 3,
+    SWITCHRAMP_EXPO_IN = 4,
+    SWITCHRAMP_EXPO_OUT = 5,
+    SWITCHRAMP_EXPO_IN_OUT = 6,
+} switchramp_type_t;
 
 
 typedef enum {
     INTERP_LINEAR = 0,
     INTERP_CUBIC = 1,
     INTERP_SPLINE = 3,
-} interp_type;
+} interp_type_t;
 
 // clang-format off
 struct t_karma {
@@ -94,7 +94,7 @@ struct t_karma {
     long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
     long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
-    interp_type interpflag; // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
+    interp_type_t interpflag; // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a long ??)
     long   recordhead;      // record head position in samples
     long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
     long   maxloop;         // the overall loop end recorded so far (in samples), is static value
@@ -105,15 +105,15 @@ struct t_karma {
     long   playfade;        // fade counter for playback in samples
     long   globalramp;      // general fade time (for both recording and playback) in samples
     long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
-    switchramp_type snrtype;  // switch n ramp curve option choice
+    switchramp_type_t snrtype;  // switch n ramp curve option choice
     long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
     long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
     long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
-    control_state statecontrol; // master looper state control (not 'human state')
-    human_state statehuman; // master looper state human logic (not 'statecontrol') (0=stop, 1=play, 2=record, 3=overdub, 4=append 5=initial)
+    control_state_t statecontrol; // master looper state control (not 'human state')
+    human_state_t statehuman; // master looper state human logic (not 'statecontrol') (0=stop, 1=play, 2=record, 3=overdub, 4=append 5=initial)
 
     char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
     char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
@@ -182,33 +182,33 @@ static inline double ease_record(double y1, char updwn, double globalramp, long 
 }
 
 // easing function for switch & ramp
-static inline double ease_switchramp(double y1, double snrfade, switchramp_type snrtype)
+static inline double ease_switchramp(double y1, double snrfade, switchramp_type_t snrtype)
 {
 
     switch (snrtype)
     {
-        case SR_TYPE_LINEAR:
+        case SWITCHRAMP_LINEAR:
             y1  = y1 * (1.0 - snrfade);
             break;
-        case SR_TYPE_SINE_EASE_IN:
+        case SWITCHRAMP_SINE_IN:
             y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));
             break;
-        case SR_TYPE_CUBIC_EASE_IN:
+        case SWITCHRAMP_CUBIC_IN:
             y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));
             break;
-        case SR_TYPE_CUBIC_EASE_OUT:
+        case SWITCHRAMP_CUBIC_OUT:
             snrfade = snrfade - 1;
             y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));
             break;
-        case SR_TYPE_EXP_EASE_IN: 
+        case SWITCHRAMP_EXPO_IN: 
             snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
             y1  = y1 * (1.0 - snrfade);
             break;
-        case SR_TYPE_EXP_EASE_OUT:
+        case SWITCHRAMP_EXPO_OUT:
             snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
             y1  = y1 * (1.0 - snrfade);
             break;
-        case SR_TYPE_EXP_EASE_INOUT:
+        case SWITCHRAMP_EXPO_IN_OUT:
             if ((snrfade > 0) && (snrfade < 0.5))
                 y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
             else if ((snrfade < 1) && (snrfade > 0.5))
@@ -434,7 +434,7 @@ if (x) {
     x->overdubprev = 1.0;
     x->overdubamp = 1.0;
     x->speedfloat = 1.0;
-    x->snrtype = SR_TYPE_SINE_EASE_IN;
+    x->snrtype = SWITCHRAMP_SINE_IN;
     x->interpflag = INTERP_CUBIC;
     x->islooped = 1;
     x->playfadeflag = 0;
@@ -1557,8 +1557,8 @@ void karma_record(t_karma* x)
     // };
 
     t_buffer_obj* buf = buffer_ref_getobject(x->buf);
-    control_state sc = CONTROL_STATE_ZERO;
-    human_state   sh = x->statehuman;
+    control_state_t sc = CONTROL_STATE_ZERO;
+    human_state_t   sh = x->statehuman;
     t_bool        record = x->record;
     t_bool        go = x->go;
     t_bool        altflag = x->alternateflag;
@@ -1734,7 +1734,7 @@ void karma_dsp64(
 // Helper function implementations
 
 static void karma_perform_state_control(
-    t_karma* x, control_state* statecontrol, t_bool* record, t_bool* go,
+    t_karma* x, control_state_t* statecontrol, t_bool* record, t_bool* go,
     t_bool* triginit, t_bool* loopdetermine, t_bool* alternateflag,
     char* recendmark, long* recordfade, long* playfade, char* recfadeflag,
     char* playfadeflag, double* snrfade)
@@ -1853,7 +1853,7 @@ static void karma_perform_record_state_change(
 
 static double karma_perform_interpolation(
     t_karma* x, double accuratehead, char direction, char directionorig,
-    long maxloop, long frames, float* b, long pchans, interp_type interp,
+    long maxloop, long frames, float* b, long pchans, interp_type_t interp,
     long* playhead_ptr, long* interp0_ptr, long* interp1_ptr, long* interp2_ptr,
     long* interp3_ptr)
 {
@@ -1890,7 +1890,7 @@ static double karma_perform_interpolation(
 
 static void karma_perform_playback_processing(
     t_karma* x, double osamp1, double globalramp, double snrramp,
-    switchramp_type snrtype, double* snrfade, long* playfade, char playfadeflag,
+    switchramp_type_t snrtype, double* snrfade, long* playfade, char playfadeflag,
     t_bool go, t_bool record, t_bool triginit, t_bool jumpflag,
     t_bool loopdetermine, double* o1dif, double o1prev, double* osamp1_ptr,
     t_bool* go_ptr, t_bool* triginit_ptr, t_bool* jumpflag_ptr,
@@ -2097,7 +2097,7 @@ static void karma_perform_cleanup(
     t_bool wrapflag, double snrfade, double accuratehead, char directionorig,
     char directionprev, long recordhead, t_bool alternateflag, long recordfade,
     t_bool triginit, t_bool jumpflag, t_bool go_state, t_bool record,
-    t_bool recordprev, control_state statecontrol, char playfadeflag,
+    t_bool recordprev, control_state_t statecontrol, char playfadeflag,
     char recfadeflag, long playfade, long minloop, long maxloop,
     long initiallow, long initialhigh, t_bool loopdetermine, long startloop,
     long endloop, double overdubamp, char recendmark, t_bool append)
@@ -2155,7 +2155,7 @@ static void karma_perform_cleanup(
 static void karma_perform_init_state(
     t_karma* x, t_buffer_obj* buf, float** b_ptr, t_bool* record,
     t_bool* recordprev, t_bool* dirt, double* o1prev, double* o1dif,
-    double* writeval1, t_bool* go, control_state* statecontrol,
+    double* writeval1, t_bool* go, control_state_t* statecontrol,
     char* playfadeflag, char* recfadeflag, long* recordhead,
     t_bool* alternateflag, long* pchans, double* srscale, long* frames,
     t_bool* triginit, t_bool* jumpflag, t_bool* append, char* directionorig,
@@ -2165,8 +2165,8 @@ static void karma_perform_init_state(
     double* overdubamp, double* overdubprev, double* ovdbdif, long* recordfade,
     long* playfade, double* accuratehead, long* playhead, double* maxhead,
     t_bool* wrapflag, double* jumphead, double* pokesteps, double* snrfade,
-    double* globalramp, double* snrramp, switchramp_type* snrtype,
-    interp_type* interp, double* speedfloat)
+    double* globalramp, double* snrramp, switchramp_type_t* snrtype,
+    interp_type_t* interp, double* speedfloat)
 {
     *record = x->record;
     *recordprev = x->recordprev;
@@ -2324,7 +2324,7 @@ static void karma_perform_state_update(
     double snrfade, double accuratehead, char directionorig, char directionprev,
     long recordhead, t_bool alternateflag, long recordfade, t_bool triginit,
     t_bool jumpflag, t_bool go, t_bool record, t_bool recordprev,
-    control_state statecontrol, char playfadeflag, char recfadeflag,
+    control_state_t statecontrol, char playfadeflag, char recfadeflag,
     long playfade, long minloop, long maxloop, long initiallow,
     long initialhigh, t_bool loopdetermine, long startloop, long endloop,
     double overdubamp, char recendmark, t_bool append)
@@ -2391,9 +2391,9 @@ void karma_mono_perform(
     short   speedinlet = x->speedconnect;
 
     // State variables
-    control_state   statecontrol;
-    interp_type     interp;
-    switchramp_type snrtype;
+    control_state_t   statecontrol;
+    interp_type_t     interp;
+    switchramp_type_t snrtype;
 
     double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif,
         pokesteps;
