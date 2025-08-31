@@ -314,6 +314,104 @@ static inline void init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
 }
 
 // Helper function to handle loop boundary wrapping and jumping
+// Helper function to handle recording state cleanup after boundary adjustments
+static inline void handle_recording_cleanup(
+    t_bool record, double globalramp, long frames, float *b, long pchans,
+    double accuratehead, long *recordhead, char direction, long *recordfade, 
+    char *recfadeflag, double *snrfade, t_bool use_ease_on, double ease_pos)
+{
+    *snrfade = 0.0;
+    if (record) {
+        if (globalramp) {
+            if (use_ease_on) {
+                ease_bufon(frames - 1, b, pchans, accuratehead, *recordhead, direction, globalramp);
+            } else {
+                ease_bufoff(frames - 1, b, pchans, ease_pos, -direction, globalramp);
+            }
+            *recordfade = 0;
+        }
+        *recfadeflag = 0;
+        *recordhead = -1;
+    }
+}
+
+// Helper function to handle forward direction boundary wrapping for jumpflag
+static inline void handle_forward_jump_boundary(
+    double *accuratehead, long maxloop, long setloopsize, t_bool record,
+    double globalramp, long frames, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade)
+{
+    if (*accuratehead > maxloop) {
+        *accuratehead = *accuratehead - setloopsize;
+        handle_recording_cleanup(record, globalramp, frames, b, pchans, 
+                               *accuratehead, recordhead, direction, recordfade, 
+                               recfadeflag, snrfade, 1, 0);
+    } else if (*accuratehead < 0.0) {
+        *accuratehead = maxloop + *accuratehead;
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 1, 0);
+    }
+}
+
+// Helper function to handle reverse direction boundary wrapping for jumpflag
+static inline void handle_reverse_jump_boundary(
+    double *accuratehead, long frames, long setloopsize, long maxloop,
+    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade)
+{
+    if (*accuratehead > (frames - 1)) {
+        *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 1, 0);
+    } else if (*accuratehead < ((frames - 1) - maxloop)) {
+        *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 1, 0);
+    }
+}
+
+// Helper function to handle forward direction boundaries with wrapflag
+static inline void handle_forward_wrap_boundary(
+    double *accuratehead, long maxloop, long minloop, long setloopsize,
+    t_bool record, double globalramp, long frames, float *b, long pchans,
+    long *recordhead, char direction, long *recordfade, char *recfadeflag,
+    double *snrfade)
+{
+    if (*accuratehead > maxloop) {
+        *accuratehead = *accuratehead - setloopsize;
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 0, maxloop);
+    } else if (*accuratehead < 0.0) {
+        *accuratehead = maxloop + setloopsize;
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 0, minloop);
+    }
+}
+
+// Helper function to handle reverse direction boundaries with wrapflag
+static inline void handle_reverse_wrap_boundary(
+    double *accuratehead, long frames, long maxloop, long setloopsize,
+    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade)
+{
+    if (*accuratehead < ((frames - 1) - maxloop)) {
+        *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 0, ((frames - 1) - maxloop));
+    } else if (*accuratehead > (frames - 1)) {
+        *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
+        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                               *accuratehead, recordhead, direction, recordfade,
+                               recfadeflag, snrfade, 0, (frames - 1));
+    }
+}
+
 static inline void handle_loop_boundary(
     double *accuratehead, double speed, double srscale, char direction, 
     char directionorig, long frames, long maxloop, long minloop, 
@@ -331,146 +429,40 @@ static inline void handle_loop_boundary(
     *accuratehead = *accuratehead + speedsrscaled;
     
     if (jumpflag) {
-        // Jump flag handling
-        if (wrapflag) {
-            // Handle wrap conditions for jump
-            if ((*accuratehead < endloop) || (*accuratehead > startloop)) {
-                // jumpflag will be cleared by caller
-            }
-        } else {
-            if ((*accuratehead < endloop) && (*accuratehead > startloop)) {
-                // jumpflag will be cleared by caller
-            }
-        }
-        
         // Handle boundary wrapping for forward/reverse directions
         if (directionorig >= 0) {
-            if (*accuratehead > maxloop) {
-                *accuratehead = *accuratehead - setloopsize;
-                *snrfade = 0.0;
-                if (record) {
-                    if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
-                        *recordfade = 0;
-                    }
-                    *recfadeflag = 0;
-                    *recordhead = -1;
-                }
-            } else if (*accuratehead < 0.0) {
-                *accuratehead = maxloop + *accuratehead;
-                *snrfade = 0.0;
-                if (record) {
-                    if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
-                        *recordfade = 0;
-                    }
-                    *recfadeflag = 0;
-                    *recordhead = -1;
-                }
-            }
+            handle_forward_jump_boundary(accuratehead, maxloop, setloopsize, record,
+                                       globalramp, frames, b, pchans, recordhead,
+                                       direction, recordfade, recfadeflag, snrfade);
         } else {
-            // Reverse direction handling
-            if (*accuratehead > (frames - 1)) {
-                *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
-                *snrfade = 0.0;
-                if (record) {
-                    if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
-                        *recordfade = 0;
-                    }
-                    *recfadeflag = 0;
-                    *recordhead = -1;
-                }
-            } else if (*accuratehead < ((frames - 1) - maxloop)) {
-                *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
-                *snrfade = 0.0;
-                if (record) {
-                    if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
-                        *recordfade = 0;
-                    }
-                    *recfadeflag = 0;
-                    *recordhead = -1;
-                }
-            }
+            handle_reverse_jump_boundary(accuratehead, frames, setloopsize, maxloop,
+                                       record, globalramp, b, pchans, recordhead,
+                                       direction, recordfade, recfadeflag, snrfade);
         }
     } else {
         // Regular window/position constraints handling
         if (wrapflag) {
             if ((*accuratehead > endloop) && (*accuratehead < startloop)) {
                 *accuratehead = (direction >= 0) ? startloop : endloop;
-                *snrfade = 0.0;
-                if (record) {
-                    if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
-                        *recordfade = 0;
-                    }
-                    *recfadeflag = 0;
-                    *recordhead = -1;
-                }
+                handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                                       *accuratehead, recordhead, direction, recordfade,
+                                       recfadeflag, snrfade, 1, 0);
             } else if (directionorig >= 0) {
-                if (*accuratehead > maxloop) {
-                    *accuratehead = *accuratehead - setloopsize;
-                    *snrfade = 0.0;
-                    if (record) {
-                        if (globalramp) {
-                            ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                            *recordfade = 0;
-                        }
-                        *recfadeflag = 0;
-                        *recordhead = -1;
-                    }
-                } else if (*accuratehead < 0.0) {
-                    *accuratehead = maxloop + setloopsize;
-                    *snrfade = 0.0;
-                    if (record) {
-                        if (globalramp) {
-                            ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);
-                            *recordfade = 0;
-                        }
-                        *recfadeflag = 0;
-                        *recordhead = -1;
-                    }
-                }
+                handle_forward_wrap_boundary(accuratehead, maxloop, minloop, setloopsize,
+                                           record, globalramp, frames, b, pchans, recordhead,
+                                           direction, recordfade, recfadeflag, snrfade);
             } else {
-                // Reverse direction
-                if (*accuratehead < ((frames - 1) - maxloop)) {
-                    *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
-                    *snrfade = 0.0;
-                    if (record) {
-                        if (globalramp) {
-                            ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                            *recordfade = 0;
-                        }
-                        *recfadeflag = 0;
-                        *recordhead = -1;
-                    }
-                } else if (*accuratehead > (frames - 1)) {
-                    *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
-                    *snrfade = 0.0;
-                    if (record) {
-                        if (globalramp) {
-                            ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                            *recordfade = 0;
-                        }
-                        *recfadeflag = 0;
-                        *recordhead = -1;
-                    }
-                }
+                handle_reverse_wrap_boundary(accuratehead, frames, maxloop, setloopsize,
+                                           record, globalramp, b, pchans, recordhead,
+                                           direction, recordfade, recfadeflag, snrfade);
             }
         } else {
             // Not wrapflag
             if ((*accuratehead > endloop) || (*accuratehead < startloop)) {
                 *accuratehead = (direction >= 0) ? startloop : endloop;
-                *snrfade = 0.0;
-                if (record) {
-                    if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
-                        *recordfade = 0;
-                    }
-                    *recfadeflag = 0;
-                    *recordhead = -1;
-                }
+                handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                                       *accuratehead, recordhead, direction, recordfade,
+                                       recfadeflag, snrfade, 1, 0);
             }
         }
     }

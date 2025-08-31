@@ -19,7 +19,34 @@ void calculate_sync_output(double osamp1, double *o1prev, double **out1, char sy
 void apply_ipoke_interpolation(float *b, long pchans, long start_idx, long end_idx, double *writeval1, double coeff1, char direction) 
 
 // Helper function to initialize buffer properties
-void init_buffer_properties(t_karma *x, t_buffer_obj *buf)
+void init_buffer_properties(t_karma *x, t_buffer_obj *buf);
+
+// Helpers for handle_loop_boundary
+void handle_recording_cleanup(
+    t_bool record, double globalramp, long frames, float *b, long pchans,
+    double accuratehead, long *recordhead, char direction, long *recordfade, 
+    char *recfadeflag, double *snrfade, t_bool use_ease_on, double ease_pos);
+
+void handle_forward_jump_boundary(
+    double *accuratehead, long maxloop, long setloopsize, t_bool record,
+    double globalramp, long frames, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+
+void handle_reverse_jump_boundary(
+    double *accuratehead, long frames, long setloopsize, long maxloop,
+    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+
+void handle_forward_wrap_boundary(
+    double *accuratehead, long maxloop, long minloop, long setloopsize,
+    t_bool record, double globalramp, long frames, float *b, long pchans,
+    long *recordhead, char direction, long *recordfade, char *recfadeflag,
+    double *snrfade);
+
+void handle_reverse_wrap_boundary(
+    double *accuratehead, long frames, long maxloop, long setloopsize,
+    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade);
 
 // Helper function to handle loop boundary wrapping and jumping
 void handle_loop_boundary(
@@ -28,7 +55,7 @@ void handle_loop_boundary(
     long setloopsize, long startloop, long endloop, t_bool wrapflag, 
     t_bool jumpflag, t_bool record, double globalramp, float *b, 
     long pchans, long *recordhead, long *recordfade, char *recfadeflag,
-    double *snrfade)
+    double *snrfade);
 
 // Helper function to perform playback interpolation
 double perform_playback_interpolation(
