@@ -1017,8 +1017,6 @@ void karma_assist(t_karma *x, void *b, long m, long a, char *s)
     }
 }
 
-//  //  //
-
 void karma_float(t_karma *x, double speedfloat)
 {
     long inlet = proxy_getinlet((t_object *)x);
@@ -1028,62 +1026,7 @@ void karma_float(t_karma *x, double speedfloat)
         x->speedfloat = speedfloat;
     }
 }
-/*
-void karma_select_internal(t_karma *x, double selectionstart, double selectionlength)
-{
-    long bfrmaesminusone;
-    double setloopsize;
 
-    double minsampsnorm = x->bvsnorm * 0.5;         // half vectorsize samples minimum as normalised value  // !! buffer sr !!
-    x->selstart = selectionstart;
-    x->selection = (selectionlength < minsampsnorm) ? minsampsnorm : selectionlength;
-
-    // for dealing with selection-out-of-bounds logic:
-
-    if (!x->loopdetermine)
-    {
-        setloopsize = x->maxloop - x->minloop;
-
-        if (x->directionorig < 0)   // if originally in reverse
-        {
-            bfrmaesminusone = x->bframes - 1;
-            
-            x->startloop = CLAMP( (bfrmaesminusone - x->maxloop) + (x->selstart * x->maxloop), bfrmaesminusone - x->maxloop, bfrmaesminusone );
-            x->endloop = x->startloop + (x->selection * x->maxloop);
-
-            if (x->endloop > bfrmaesminusone) {
-                x->endloop = (bfrmaesminusone - setloopsize) + (x->endloop - bfrmaesminusone);
-                x->wrapflag = 1;
-            } else {
-                x->wrapflag = 0;    // selection-in-bounds
-            }
-            
-        } else {                    // if originally forwards
-
-            x->startloop = CLAMP( selectionstart * x->maxloop, x->minloop, x->maxloop );
-            x->endloop = x->startloop + (x->selection * setloopsize);
-            
-            if (x->endloop > x->maxloop) {
-                x->endloop = x->endloop - setloopsize;
-                x->wrapflag = 1;
-            } else {
-                x->wrapflag = 0;    // selection-in-bounds
-            }
-            
-        }
-    }
-}
-
-void karma_select_start(t_karma *x, double positionstart)
-{
-    karma_select_internal(x, positionstart, x->selection);
-}
-
-void karma_select_size(t_karma *x, double duration)
-{
-    karma_select_internal(x, x->selstart, duration);
-}
-*/
 void karma_select_start(t_karma *x, double positionstart)   // positionstart = "position" float message
 {
     long bfrmaesminusone, setloopsize;
@@ -1341,10 +1284,8 @@ void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long v
     x->clockgo  = 1;
     
     if (x->bufname != 0) {
-//      if (buffer_ref_exists(x->buf)) {        // this hack does not really work...
-            if (!x->initinit)
-                karma_buf_setup(x, x->bufname); // does 'x->bvsnorm'    // !! this should be defered ??
-//      }
+        if (!x->initinit)
+            karma_buf_setup(x, x->bufname); // does 'x->bvsnorm'    // !! this should be defered ??
         x->speedconnect = count[1];         // speed is 2nd inlet
         object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
         if (!x->initinit) {
@@ -1353,17 +1294,12 @@ void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long v
         } else {
             karma_select_size(x, x->selection);
             karma_select_start(x, x->selstart);
-//          karma_select_internal(x, x->selstart, x->selection);
         }
-/*  } else {
-        object_error((t_object *)x, "fails without buffer~ name!");
-*/  }
+   }
 }
 
 
-//  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //
-//  //  //  //  //  //  //  //  (crazy) PERFORM ROUTINES    //  //  //  //  //  //  //  //  //
-//  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //
+/////////////////////////////////// PERFORM ROUTINES
 
 // Helper function: Process state control switch statement
 void karma_process_state_control(t_karma *x, control_state_t *statecontrol, t_bool *record, t_bool *go, t_bool *triginit, 
