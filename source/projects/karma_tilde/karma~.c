@@ -304,6 +304,211 @@ static inline void init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
     x->srscale  = x->bsr / x->ssr;
 }
 
+// Helper function to handle loop boundary wrapping and jumping
+static inline void handle_loop_boundary(double *accuratehead, double speed, double srscale, char direction, 
+                                       char directionorig, long frames, long maxloop, long minloop, 
+                                       long setloopsize, long startloop, long endloop, t_bool wrapflag, 
+                                       t_bool jumpflag, t_bool record, double globalramp, float *b, 
+                                       long pchans, long *recordhead, long *recordfade, char *recfadeflag,
+                                       double *snrfade) {
+    double speedsrscaled = speed * srscale;
+    
+    if (record) {
+        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? 
+                       ((setloopsize / 1024) * direction) : speedsrscaled;
+    }
+    *accuratehead = *accuratehead + speedsrscaled;
+    
+    if (jumpflag) {
+        // Jump flag handling
+        if (wrapflag) {
+            // Handle wrap conditions for jump
+            if ((*accuratehead < endloop) || (*accuratehead > startloop)) {
+                // jumpflag will be cleared by caller
+            }
+        } else {
+            if ((*accuratehead < endloop) && (*accuratehead > startloop)) {
+                // jumpflag will be cleared by caller
+            }
+        }
+        
+        // Handle boundary wrapping for forward/reverse directions
+        if (directionorig >= 0) {
+            if (*accuratehead > maxloop) {
+                *accuratehead = *accuratehead - setloopsize;
+                *snrfade = 0.0;
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                }
+            } else if (*accuratehead < 0.0) {
+                *accuratehead = maxloop + *accuratehead;
+                *snrfade = 0.0;
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                }
+            }
+        } else {
+            // Reverse direction handling
+            if (*accuratehead > (frames - 1)) {
+                *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
+                *snrfade = 0.0;
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                }
+            } else if (*accuratehead < ((frames - 1) - maxloop)) {
+                *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
+                *snrfade = 0.0;
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                }
+            }
+        }
+    } else {
+        // Regular window/position constraints handling
+        if (wrapflag) {
+            if ((*accuratehead > endloop) && (*accuratehead < startloop)) {
+                *accuratehead = (direction >= 0) ? startloop : endloop;
+                *snrfade = 0.0;
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                }
+            } else if (directionorig >= 0) {
+                if (*accuratehead > maxloop) {
+                    *accuratehead = *accuratehead - setloopsize;
+                    *snrfade = 0.0;
+                    if (record) {
+                        if (globalramp) {
+                            ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
+                            *recordfade = 0;
+                        }
+                        *recfadeflag = 0;
+                        *recordhead = -1;
+                    }
+                } else if (*accuratehead < 0.0) {
+                    *accuratehead = maxloop + setloopsize;
+                    *snrfade = 0.0;
+                    if (record) {
+                        if (globalramp) {
+                            ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);
+                            *recordfade = 0;
+                        }
+                        *recfadeflag = 0;
+                        *recordhead = -1;
+                    }
+                }
+            } else {
+                // Reverse direction
+                if (*accuratehead < ((frames - 1) - maxloop)) {
+                    *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
+                    *snrfade = 0.0;
+                    if (record) {
+                        if (globalramp) {
+                            ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
+                            *recordfade = 0;
+                        }
+                        *recfadeflag = 0;
+                        *recordhead = -1;
+                    }
+                } else if (*accuratehead > (frames - 1)) {
+                    *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
+                    *snrfade = 0.0;
+                    if (record) {
+                        if (globalramp) {
+                            ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
+                            *recordfade = 0;
+                        }
+                        *recfadeflag = 0;
+                        *recordhead = -1;
+                    }
+                }
+            }
+        } else {
+            // Not wrapflag
+            if ((*accuratehead > endloop) || (*accuratehead < startloop)) {
+                *accuratehead = (direction >= 0) ? startloop : endloop;
+                *snrfade = 0.0;
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                }
+            }
+        }
+    }
+}
+
+// Helper function to perform playback interpolation
+static inline double perform_playback_interpolation(double frac, float *b, long interp0, long interp1, 
+                                                   long interp2, long interp3, long pchans, 
+                                                   interp_type_t interp, t_bool record) {
+    if (record) {
+        // If recording, use linear interpolation
+        return linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+    } else {
+        // Otherwise use specified interpolation type
+        if (interp == 1) {
+            return cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+        } else if (interp == 2) {
+            return spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+        } else {
+            return linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+        }
+    }
+}
+
+// Helper function to handle playfade state machine logic
+static inline void handle_playfade_state(char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag, 
+                                        t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record) {
+    switch (*playfadeflag) {
+        case 0:
+            break;
+        case 1:
+            *playfadeflag = *go = 0;
+            break;
+        case 2:
+            if (!record)
+                *triginit = *jumpflag = 1;
+            // Fall through to case 3
+        case 3:
+            *playfadeflag = *playfade = 0;
+            break;
+        case 4:  // append
+            *go = *triginit = *loopdetermine = 1;
+            *snrfade = 0.0;
+            *playfade = 0;
+            *playfadeflag = 0;
+            break;
+    }
+}
+
 // interpolation points
 // Helper to wrap index for forward or reverse looping
 static inline long wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
@@ -1680,156 +1885,21 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     }
                 } else {        // jump-based constraints (outside 'window')
                     setloopsize = maxloop - minloop;
-                    speedsrscaled = speed * srscale;
                     
-                    if (record)
-                        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                    accuratehead = accuratehead + speedsrscaled;
+                    // Handle loop boundary wrapping and jumping
+                    handle_loop_boundary(&accuratehead, speed, srscale, direction, directionorig, frames, 
+                                        maxloop, minloop, setloopsize, startloop, endloop, wrapflag, 
+                                        jumpflag, record, globalramp, b, pchans, &recordhead, 
+                                        &recordfade, &recfadeflag, &snrfade);
                     
-                    if (jumpflag)
-                    {
+                    // Clear jumpflag if conditions are met
+                    if (jumpflag) {
                         if (wrapflag) {
                             if ((accuratehead < endloop) || (accuratehead > startloop))
                                 jumpflag = 0;
                         } else {
                             if ((accuratehead < endloop) && (accuratehead > startloop))
                                 jumpflag = 0;
-                        }
-                        if (directionorig >= 0)
-                        {
-                            if (accuratehead > maxloop)
-                            {
-                                accuratehead = accuratehead - setloopsize;
-                                snrfade = 0.0;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                        recordfade = 0;
-                                    }
-                                    recfadeflag = 0;
-                                    recordhead = -1;
-                                }
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = maxloop + accuratehead;
-                                snrfade = 0.0;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                        recordfade = 0;
-                                    }
-                                    recfadeflag = 0;
-                                    recordhead = -1;
-                                }
-                            }
-                        } else {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                snrfade = 0.0;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                        recordfade = 0;
-                                    }
-                                    recfadeflag = 0;
-                                    recordhead = -1;
-                                }
-                            } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                snrfade = 0.0;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                        recordfade = 0;
-                                    }
-                                    recfadeflag = 0;
-                                    recordhead = -1;
-                                }
-                            }
-                        }
-                    } else {    // regular 'window' / 'position' constraints
-                        if (wrapflag)
-                        {
-                            if ((accuratehead > endloop) && (accuratehead < startloop))
-                            {
-                                accuratehead = (direction >= 0) ? startloop : endloop;
-                                snrfade = 0.0;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                        recordfade = 0;
-                                    }
-                                    recfadeflag = 0;
-                                    recordhead = -1;
-                                }
-                            } else if (directionorig >= 0) {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                                else if (accuratehead < 0.0)
-                                {
-                                    accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {    // reverse
-                                if (accuratehead < ((frames - 1) - maxloop))
-                                {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record)
-                                    {
-                                        if (globalramp) {
-                                            ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead > (frames - 1)) {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // (not wrapflag)
-                            if ((accuratehead > endloop) || (accuratehead < startloop))
-                            {
-                                accuratehead = (direction >= 0) ? startloop : endloop;
-                                snrfade = 0.0;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                        recordfade = 0;
-                                    }
-                                    recfadeflag = 0;
-                                    recordhead = -1;
-                                }
-                            }
                         }
                     }
                 }
@@ -1847,16 +1917,9 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 }                                                                                   // setloopsize  // ??
                 interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices
                 
-                if (record) {           // if recording do linear-interp else...
-                    osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                    if (interp == 1)
-                        osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                    else if (interp == 2)
-                        osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                    else
-                        osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                }
+                // Perform playback interpolation
+                osamp1 = perform_playback_interpolation(frac, b, interp0, interp1, interp2, interp3, 
+                                                       pchans, interp, record);
                 
                 if (globalramp)
                 {                                           // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
@@ -1875,53 +1938,13 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                         playfade++;
                         if (playfade >= globalramp)
                         {
-                            switch (playfadeflag)
-                            {
-                                case 0:
-                                    break;
-                                case 1:
-                                    playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                    break;
-                                case 2:
-                                    if (!record)
-                                        triginit = jumpflag = 1;
-//                                  break;                  // !! no break - pass 2 -> 3 !!
-                                case 3:                     // jump // record off reg
-                                    playfadeflag = playfade = 0;
-                                    break;
-                                case 4:                     // append
-                                    go = triginit = loopdetermine = 1;
-                                    // !! will disbling this enable play behind append ?? should this be dependent on passing previous maxloop ??
-                                    snrfade = 0.0;
-                                    playfade = 0;           // !!
-                                    playfadeflag = 0;
-                                    break;
-                            }
+                            handle_playfade_state(&playfadeflag, &go, &triginit, &jumpflag, 
+                                                 &loopdetermine, &playfade, &snrfade, record);
                         }
                     }
                 } else {
-                    switch (playfadeflag)
-                    {
-                        case 0:
-                            break;
-                        case 1:
-                            playfadeflag = go = 0;
-                            break;
-                        case 2:
-                            if (!record)
-                                triginit = jumpflag = 1;
-//                          break;                                  // !! no break - pass 2 -> 3 !!
-                        case 3:                                     // jump     // record off reg
-                            playfadeflag = 0;
-                            break;
-                        case 4:                                     // append
-                            go = triginit = loopdetermine = 1;
-                            // !! will disbling this enable play behind append ?? should this be based on passing previous maxloop ??
-                            snrfade = 0.0;
-                            playfade = 0;   // !!
-                            playfadeflag = 0;
-                            break;
-                    }
+                    handle_playfade_state(&playfadeflag, &go, &triginit, &jumpflag, 
+                                         &loopdetermine, &playfade, &snrfade, record);
                 }
                 
             } else {
