@@ -8,9 +8,9 @@ include_directories(
 )
 
 file(GLOB PROJECT_SRC
-     "*.h"
+	"*.h"
 	"*.c"
-     "*.cpp"
+	"*.cpp"
 )
 
 
