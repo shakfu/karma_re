@@ -227,6 +227,83 @@ static inline void ease_bufon(long framesm1, float *buf, long pchans, long markp
     }
 }
 
+// Helper function to handle recording fade completion logic
+static inline void handle_recording_fade_completion(char recfadeflag, char *recendmark, t_bool *record, 
+                                                   t_bool *triginit, t_bool *jumpflag, t_bool *loopdetermine,
+                                                   long *recordfade, char directionorig, long *maxloop, 
+                                                   long maxhead, long frames) {
+    if (recfadeflag == 2) {
+        *recendmark = 4;
+        *triginit = *jumpflag = 1;
+        *recordfade = 0;
+    } else if (recfadeflag == 5) {
+        *record = 1;
+    }
+    
+    switch (*recendmark) {
+        case 0:
+            *record = 0;
+            break;
+        case 1:
+            if (directionorig < 0) {
+                *maxloop = (frames - 1) - maxhead;
+            } else {
+                *maxloop = maxhead;
+            }
+        case 2:
+            *record = *loopdetermine = 0;
+            *triginit = 1;
+            break;
+        case 3:
+            *record = *triginit = 1;
+            *recordfade = *loopdetermine = 0;
+            break;
+        case 4:
+            *recendmark = 0;
+            break;
+    }
+}
+
+// Helper function to calculate sync outlet output
+static inline void calculate_sync_output(double osamp1, double *o1prev, double **out1, char syncoutlet,
+                                        double **outPh, double accuratehead, double minloop, double maxloop,
+                                        char directionorig, long frames, double setloopsize) {
+    *o1prev = osamp1;
+    *(*out1)++ = osamp1;
+    if (syncoutlet) {
+        setloopsize = maxloop - minloop;
+        *(*outPh)++ = (directionorig >= 0) ? 
+                      ((accuratehead - minloop) / setloopsize) : 
+                      ((accuratehead - (frames - setloopsize)) / setloopsize);
+    }
+}
+
+// Helper function to apply iPoke interpolation over a range
+static inline void apply_ipoke_interpolation(float *b, long pchans, long start_idx, long end_idx,
+                                            double *writeval1, double coeff1, char direction) {
+    if (direction > 0) {
+        for (long i = start_idx; i < end_idx; i++) {
+            *writeval1 += coeff1;
+            b[i * pchans] = *writeval1;
+        }
+    } else {
+        for (long i = start_idx; i > end_idx; i--) {
+            *writeval1 -= coeff1;
+            b[i * pchans] = *writeval1;
+        }
+    }
+}
+
+// Helper function to initialize buffer properties
+static inline void init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
+    x->bchans   = buffer_getchannelcount(buf);
+    x->bframes  = buffer_getframecount(buf);
+    x->bmsr     = buffer_getmillisamplerate(buf);
+    x->bsr      = buffer_getsamplerate(buf);
+    x->nchans   = (x->bchans < x->ochans) ? x->bchans : x->ochans;  // MIN
+    x->srscale  = x->bsr / x->ssr;
+}
+
 // interpolation points
 // Helper to wrap index for forward or reverse looping
 static inline long wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
@@ -499,12 +576,7 @@ void karma_buf_setup(t_karma *x, t_symbol *s)
         x->directionorig            =  0;
         x->maxhead  = x->playhead   =  0.0;
         x->recordhead               = -1;
-        x->bchans   = buffer_getchannelcount(buf);
-        x->bframes  = buffer_getframecount(buf);
-        x->bmsr     = buffer_getmillisamplerate(buf);
-        x->bsr      = buffer_getsamplerate(buf);
-        x->nchans   = (x->bchans < x->ochans) ? x->bchans : x->ochans;  // MIN
-        x->srscale                  = x->bsr / x->ssr;// x->ssr / x->bsr;
+        init_buffer_properties(x, buf);
         x->bvsnorm  = x->vsnorm * (x->bsr / (double)x->bframes);
         x->minloop  = x->startloop  = 0.0;
         x->maxloop  = x->endloop    = (x->bframes - 1);// * ((x->bchans > 1) ? x->bchans : 1);
@@ -563,12 +635,7 @@ void karma_buf_values_internal(t_karma *x, double templow, double temphigh, long
     if (caller) {                                       // only if called from 'karma_buf_change_internal()'
         buf         = buffer_ref_getobject(x->buf);
 
-        x->bchans   = buffer_getchannelcount(buf);
-        x->bframes  = buffer_getframecount(buf);
-        x->bmsr     = buffer_getmillisamplerate(buf);
-        x->bsr      = buffer_getsamplerate(buf);
-        x->nchans   = (x->bchans < x->ochans) ? x->bchans : x->ochans;  // MIN
-        x->srscale  = x->bsr / x->ssr;// x->ssr / x->bsr;
+        init_buffer_properties(x, buf);
         
         caller_sym  = gensym("set");
     } else {
@@ -1861,12 +1928,7 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 osamp1 = 0.0;
             }
             
-            o1prev = osamp1;
-            *out1++ = osamp1;
-            if (syncoutlet) {
-                setloopsize = maxloop-minloop;
-                *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-            }
+            calculate_sync_output(osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop, maxloop, directionorig, frames, setloopsize);
 
             /*
              ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
@@ -2057,12 +2119,7 @@ apned:
             }
             
             osamp1 = 0.0;
-            o1prev = osamp1;
-            *out1++ = osamp1;
-            if (syncoutlet) {
-                setloopsize = maxloop-minloop;
-                *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-            }
+            calculate_sync_output(osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop, maxloop, directionorig, frames, setloopsize);
             
             // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
             // (modded to assume maximum distance recorded into buffer~ as the total length)
@@ -2103,10 +2160,7 @@ apned:
                                         writeval1 -= coeff1;
                                         b[i * pchans] = writeval1;
                                     }
-                                    for (i = maxhead; i > playhead; i--) {
-                                        writeval1 -= coeff1;
-                                        b[i * pchans] = writeval1;
-                                    }
+                                    apply_ipoke_interpolation(b, pchans, maxhead, playhead, &writeval1, coeff1, -1);
                                 } else {
                                     coeff1 = (recin1 - writeval1) / recplaydif;
                                     for (i = (recordhead + 1); i < playhead; i++) {
@@ -2166,10 +2220,7 @@ apned:
                                         writeval1 += coeff1;
                                         b[i * pchans] = writeval1;
                                     }
-                                    for (i = maxhead; i < playhead; i++) {
-                                        writeval1 += coeff1;
-                                        b[i * pchans] = writeval1;
-                                    }
+                                    apply_ipoke_interpolation(b, pchans, maxhead, playhead, &writeval1, coeff1, 1);
                                 } else {
                                     coeff1 = (recin1 - writeval1) / recplaydif;
                                     for (i = (recordhead - 1); i > playhead; i--) {
@@ -2204,81 +2255,15 @@ apned:
                         recordfade++;
                         if ((recfadeflag) && (recordfade >= globalramp))
                         {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
+                            handle_recording_fade_completion(recfadeflag, &recendmark, &record, &triginit, &jumpflag, &loopdetermine, &recordfade, directionorig, &maxloop, maxhead, frames);
                             recfadeflag = 0;
-                            //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                  // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    recordfade = loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
                         }
                     }
                 } else {
                     if (recfadeflag)
                     {
-                        if (recfadeflag == 2) {
-                            recendmark = 4;
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        }
+                        handle_recording_fade_completion(recfadeflag, &recendmark, &record, &triginit, &jumpflag, &loopdetermine, &recordfade, directionorig, &maxloop, maxhead, frames);
                         recfadeflag = 0;
-                        switch (recendmark)
-                        {
-                            case 0:
-                                record = 0;
-                                break;
-                            case 1:
-                                if (directionorig < 0) {
-                                    maxloop = (frames - 1) - maxhead;
-                                } else {
-                                    maxloop = maxhead;
-                                }
-//                              break;                      // !! no break - pass 1 -> 2 !!
-                            case 2:
-                                //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                record = loopdetermine = 0;
-                                triginit = 1;
-                                break;
-                            case 3:
-                                //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                record = triginit = 1;
-                                loopdetermine = 0;
-                                break;
-                            case 4:
-                                //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                recendmark = 0;
-                                break;
-                        }
                     }
                 }               //
                 recordhead = playhead;
