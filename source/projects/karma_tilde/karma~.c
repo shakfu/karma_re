@@ -509,6 +509,119 @@ static inline void handle_playfade_state(char *playfadeflag, t_bool *go, t_bool 
     }
 }
 
+// Helper function to handle loop initialization and calculation
+static inline void handle_loop_initialization(t_bool triginit, char recendmark, char directionorig, 
+                                             long *maxloop, long minloop, long maxhead, long frames, 
+                                             double selstart, double selection, double *accuratehead, 
+                                             long *startloop, long *endloop, long *setloopsize, 
+                                             t_bool *wrapflag, char direction, double globalramp, 
+                                             float *b, long pchans, long recordhead, t_bool record, 
+                                             t_bool jumpflag, double jumphead, double *snrfade, 
+                                             t_bool *append, t_bool *alternateflag, char *recendmark_ptr) {
+    if (triginit) {
+        if (recendmark) {  // calculate end of loop
+            if (directionorig >= 0) {
+                *maxloop = CLAMP(maxhead, 4096, frames - 1);
+                *setloopsize = *maxloop - minloop;
+                *accuratehead = *startloop = minloop + (selstart * (*setloopsize));
+                *endloop = *startloop + (selection * (*setloopsize));
+                if (*endloop > *maxloop) {
+                    *endloop = *endloop - ((*setloopsize) + 1);
+                    *wrapflag = 1;
+                } else {
+                    *wrapflag = 0;
+                }
+                if (direction < 0) {
+                    if (globalramp)
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
+                }
+            } else {
+                *maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
+                *setloopsize = *maxloop - minloop;
+                *startloop = ((frames - 1) - (*setloopsize)) + (selstart * (*setloopsize));
+                if (*endloop > (frames - 1)) {
+                    *endloop = ((frames - 1) - (*setloopsize)) + (*endloop - frames);
+                    *wrapflag = 1;
+                } else {
+                    *wrapflag = 0;
+                }
+                *accuratehead = *endloop;
+                if (direction > 0) {
+                    if (globalramp)
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
+                }
+            }
+            if (globalramp)
+                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
+            *snrfade = 0.0;
+            *append = *alternateflag = 0;
+            *recendmark_ptr = 0;
+        } else {    // jump / play (inside 'window')
+            *setloopsize = *maxloop - minloop;
+            if (jumpflag)
+                *accuratehead = (directionorig >= 0) ? ((jumphead * (*setloopsize)) + minloop) : (((frames - 1) - (*maxloop)) + (jumphead * (*setloopsize)));
+            else
+                *accuratehead = (direction < 0) ? *endloop : *startloop;
+            if (record) {
+                if (globalramp) {
+                    ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
+                }
+            }
+            *snrfade = 0.0;
+        }
+    }
+}
+
+// Helper function to handle initial loop creation state
+static inline void handle_initial_loop_creation(t_bool go, t_bool triginit, t_bool jumpflag, t_bool append, 
+                                               double jumphead, long maxhead, long frames, char directionorig, 
+                                               double *accuratehead, double *snrfade, t_bool record, 
+                                               double globalramp, float *b, long pchans, long *recordhead, 
+                                               char direction, long *recordfade, char *recfadeflag, 
+                                               t_bool *alternateflag, t_bool *triginit_ptr) {
+    if (go) {
+        if (triginit) {
+            if (jumpflag) {
+                // Jump logic handled by existing karma_handle_jump_logic function
+            } else if (append) {
+                *snrfade = 0.0;
+                *triginit_ptr = 0;
+                if (record) {
+                    *accuratehead = maxhead;
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *alternateflag = 1;
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                } else {
+                    *accuratehead = (directionorig >= 0) ? 0.0 : (frames - 1);
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                    }
+                }
+            } else {  // regular start
+                *snrfade = 0.0;
+                *triginit_ptr = 0;
+                *accuratehead = (directionorig >= 0) ? 0.0 : (frames - 1);
+                if (record) {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        *recordfade = 0;
+                    }
+                    *recfadeflag = 0;
+                    *recordhead = -1;
+                } else {
+                    if (globalramp) {
+                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // interpolation points
 // Helper to wrap index for forward or reverse looping
 static inline long wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
@@ -1823,65 +1936,18 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 calculate_head(directionorig, maxhead, frames, minloop, selstart, selection, direction, globalramp, &b, pchans, record, jumpflag, jumphead, &maxloop, &setloopsize, &accuratehead, &startloop, &endloop, &wrapflag, &recordhead, &snrfade, &append, &alternateflag, &recendmark, &triginit, &speedsrscaled, &recordfade, &recfadeflag);
                 */
                 
-                if (triginit)
-                {
-                    if (recendmark)  // calculate end of loop
-                    {
-                        if (directionorig >= 0)
-                        {
-                            maxloop = CLAMP(maxhead, 4096, frames - 1); // why 4096 ??
-                            setloopsize = maxloop - minloop;
-                            accuratehead = startloop = minloop + (selstart * setloopsize);
-                            endloop = startloop + (selection * setloopsize);
-                            if (endloop > maxloop) {
-                                endloop = endloop - (setloopsize + 1);
-                                wrapflag = 1;
-                            } else {
-                                wrapflag = 0;
-                            }
-                            if (direction < 0) {
-                                if (globalramp)
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                            }
-                        } else {
-                            maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                            setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                            startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                            // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);
-                            if (endloop > (frames - 1)) {
-                                endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                wrapflag = 1;
-                            } else {
-                                wrapflag = 0;
-                            }
-                            accuratehead = endloop;
-                            if (direction > 0) {
-                                if (globalramp)
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                            }
-                        }
-                        if (globalramp)
-                            ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                        recordhead = -1;
-                        snrfade = 0.0;
-                        triginit = 0;
-                        append = alternateflag = recendmark = 0;
-                    } else {    // jump / play (inside 'window')
-                        setloopsize = maxloop - minloop;
-                        if (jumpflag)
-                            accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                        else
-                            accuratehead = (direction < 0) ? endloop : startloop;
-                        if (record) {
-                            if (globalramp) {
-                                ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                recordfade = 0;
-                            }
-                            recordhead = -1;
-                            recfadeflag = 0;
-                        }
-                        snrfade = 0.0;
-                        triginit = 0;
+                // Handle loop initialization and calculation
+                handle_loop_initialization(triginit, recendmark, directionorig, &maxloop, minloop, 
+                                          maxhead, frames, selstart, selection, &accuratehead, 
+                                          &startloop, &endloop, &setloopsize, &wrapflag, direction, 
+                                          globalramp, b, pchans, recordhead, record, jumpflag, 
+                                          jumphead, &snrfade, &append, &alternateflag, &recendmark);
+                if (triginit) {
+                    recordhead = -1;
+                    triginit = 0;
+                    if (record && !recendmark) {
+                        recordfade = 0;
+                        recfadeflag = 0;
                     }
                 } else {        // jump-based constraints (outside 'window')
                     setloopsize = maxloop - minloop;
@@ -1984,26 +2050,16 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     if (jumpflag) {
                         karma_handle_jump_logic(jumphead, maxhead, frames, directionorig, &accuratehead, &jumpflag, &snrfade, record, b, pchans, &recordhead, direction, globalramp, &recordfade, &recfadeflag, &triginit);
                     } else if (append) {                // append
-                        snrfade = 0.0;
-                        triginit = 0;
-                        if (record)
-                        {
-                            accuratehead = maxhead;                 // !! maxhead !!
-                            if (globalramp) {
-                                ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                recordfade = 0;
-                            }
-                            alternateflag = 1;
-                            recfadeflag = 0;
-                            recordhead = -1;
-                        } else {
-                            goto apned;
-                        }
+                        handle_initial_loop_creation(go, triginit, jumpflag, append, jumphead, maxhead, 
+                                                    frames, directionorig, &accuratehead, &snrfade, record, 
+                                                    globalramp, b, pchans, &recordhead, direction, 
+                                                    &recordfade, &recfadeflag, &alternateflag, &triginit);
+                        if (!record) goto apned;
                     } else {                            // trigger start of initial loop creation
                         directionorig = direction;
                         minloop = 0.0;
                         maxloop = frames - 1;
-                        maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
+                        maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;
                         alternateflag = 1;
                         recordhead = -1;
                         snrfade = 0.0;
