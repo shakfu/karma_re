@@ -1,5 +1,6 @@
 #include "karma.h"
 
+// clang-format off
 struct t_karma {
     
     t_pxobject      k_ob;
@@ -45,31 +46,31 @@ struct t_karma {
     long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
 
-    long   bframes;    // number of buffer frames (number of floats long the buffer is for a single channel)
-    long   bchans;     // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
-    long   ochans;     // number of object audio channels (object arg #2: 1 / 2 / 4)
-    long   nchans;     // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
+    long   bframes;         // number of buffer frames (number of floats long the buffer is for a single channel)
+    long   bchans;          // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
+    long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
+    long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
-    interp_type_t   interpflag; // playback interpolation
-    long   recordhead; // record head position in samples
-    long   minloop;    // the minimum point in loop so far that has been requested as start point (in samples), is static value
-    long   maxloop;    // the overall loop end recorded so far (in samples), is static value
-    long   startloop;  // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
-    long   endloop;    // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
-    long   pokesteps;  // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
-    long   recordfade; // fade counter for recording in samples
-    long   playfade;   // fade counter for playback in samples
-    long   globalramp; // general fade time (for both recording and playback) in samples
-    long   snrramp;    // switch n ramp time in samples ("generally much shorter than general fade time")
-    switchramp_type_t   snrtype;    // switch n ramp curve option choice
-    long   reportlist; // right list outlet report granularity in ms (!! why is this a long ??)
-    long   initiallow; // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
-    long   initialhigh;// store inital loop high point after 'initial loop' (default -1 causes default phase 1)
+    interp_type_t interpflag; // playback interpolation
+    long   recordhead;      // record head position in samples
+    long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
+    long   maxloop;         // the overall loop end recorded so far (in samples), is static value
+    long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
+    long   recordfade;      // fade counter for recording in samples
+    long   playfade;        // fade counter for playback in samples
+    long   globalramp;      // general fade time (for both recording and playback) in samples
+    long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
+    switchramp_type_t snrtype;    // switch n ramp curve option choice
+    long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
+    long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
+    long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
-    control_state_t    statecontrol;   // master looper state control (not 'human state')
-    human_state_t      statehuman;     // master looper state human logic (not 'statecontrol')
+    control_state_t statecontrol;   // master looper state control (not 'human state')
+    human_state_t statehuman;       // master looper state human logic (not 'statecontrol')
 
     char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
     char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
@@ -322,6 +323,8 @@ void ext_main(void *r)
     ps_milliseconds = gensym("milliseconds");
     ps_originalloop = gensym("reset");
 }
+// clang-format on
+
 
 void *karma_new(t_symbol *s, short argc, t_atom *argv)
 {
@@ -355,13 +358,16 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
 
     if (x) {
         if (chans <= 1) {
-            dsp_setup((t_pxobject *)x, 2);  // one audio channel inlet, one signal speed inlet
+            // one audio channel inlet, one signal speed inlet
+            dsp_setup((t_pxobject *)x, 2);
             chans = 1;
         } else if (chans == 2) {
-            dsp_setup((t_pxobject *)x, 3);  // two audio channel inlets, one signal speed inlet
+            // two audio channel inlets, one signal speed inlet
+            dsp_setup((t_pxobject *)x, 3);
             chans = 2;
         } else {
-            dsp_setup((t_pxobject *)x, 5);  // four audio channel inlets, one signal speed inlet
+            // four audio channel inlets, one signal speed inlet
+            dsp_setup((t_pxobject *)x, 5);  
             chans = 4;
         }
         
@@ -372,22 +378,44 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
         x->ssr = sys_getsr();
         x->vs = sys_getblksize();
         x->vsnorm = x->vs / x->ssr;
-        x->overdubprev = x->overdubamp = x->speedfloat = 1.0;
+
+        x->overdubprev = 1.0;
+        x->overdubamp = 1.0;
+        x->speedfloat = 1.0;
         x->islooped = 1;
+
         x->snrtype = SWITCHRAMP_SINE_IN;
         x->interpflag = INTERP_CUBIC;
-        x->playfadeflag = x->recfadeflag = x->recordinit = x->initinit = x->append = x->jumpflag = 0;
+        x->playfadeflag = 0;
+        x->recfadeflag = 0;
+        x->recordinit = 0;
+        x->initinit = 0;
+        x->append = 0;
+        x->jumpflag = 0;
         x->statecontrol = CONTROL_STATE_ZERO;
         x->statehuman = HUMAN_STATE_STOP;
         x->stopallowed = 0;
-        x->go = x->triginit = 0;
-        x->directionprev = x->directionorig = x->recordprev = x->record = x->alternateflag = x->recendmark = 0;
-        x->pokesteps = x->wrapflag = x->loopdetermine = 0;
+        x->go = 0;
+        x->triginit = 0;
+        x->directionprev = 0;
+        x->directionorig = 0;
+        x->recordprev = 0;
+        x->record = 0;
+        x->alternateflag = 0;
+        x->recendmark = 0;
+        x->pokesteps = 0;
+        x->wrapflag = 0;
+        x->loopdetermine = 0;
         x->writeval1 = x->writeval2 = x->writeval3 = x->writeval4 = 0;
-        x->maxhead = x->playhead = 0.0;
-        x->initiallow = x->initialhigh = -1;
-        x->selstart = x->jumphead = x->snrfade = 0.0;
-        x->o1dif = x->o2dif = x->o3dif = x->o4dif = x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
+        x->maxhead = 0.0;
+        x->playhead = 0.0;
+        x->initiallow = -1;
+        x->initialhigh = -1;
+        x->selstart = 0.0;
+        x->jumphead = 0.0;
+        x->snrfade = 0.0;
+        x->o1dif = x->o2dif = x->o3dif = x->o4dif = 0.0;
+        x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
         
         if (bufname != 0)
             x->bufname = bufname;   // !! setup is in 'karma_buf_setup()' called by 'karma_dsp64()'...
@@ -439,8 +467,7 @@ void karma_free(t_karma *x)
         dsp_free((t_pxobject *)x);
 
         object_free(x->buf);
-        object_free(x->buf_temp);
-        
+        object_free(x->buf_temp);        
         object_free(x->tclock);
         object_free(x->messout);
     }
