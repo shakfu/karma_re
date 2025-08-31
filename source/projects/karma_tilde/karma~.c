@@ -1,5 +1,6 @@
 #include "karma.h"
 
+// clang-format off
 struct t_karma {
     
     t_pxobject      k_ob;
@@ -45,31 +46,31 @@ struct t_karma {
     long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
 
-    t_ptr_int   bframes;    // number of buffer frames (number of floats long the buffer is for a single channel)
-    t_ptr_int   bchans;     // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
-    t_ptr_int   ochans;     // number of object audio channels (object arg #2: 1 / 2 / 4)
-    t_ptr_int   nchans;     // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
+    long   bframes;         // number of buffer frames (number of floats long the buffer is for a single channel)
+    long   bchans;          // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
+    long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
+    long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
-    t_ptr_int   interpflag; // playback interpolation, 0 = linear, 1 = cubic, 2 = spline (!! why is this a t_ptr_int ??)
-    t_ptr_int   recordhead; // record head position in samples
-    t_ptr_int   minloop;    // the minimum point in loop so far that has been requested as start point (in samples), is static value
-    t_ptr_int   maxloop;    // the overall loop end recorded so far (in samples), is static value
-    t_ptr_int   startloop;  // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
-    t_ptr_int   endloop;    // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
-    t_ptr_int   pokesteps;  // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
-    t_ptr_int   recordfade; // fade counter for recording in samples
-    t_ptr_int   playfade;   // fade counter for playback in samples
-    t_ptr_int   globalramp; // general fade time (for both recording and playback) in samples
-    t_ptr_int   snrramp;    // switch n ramp time in samples ("generally much shorter than general fade time")
-    t_ptr_int   snrtype;    // switch n ramp curve option choice (!! why is this a t_ptr_int ??)
-    t_ptr_int   reportlist; // right list outlet report granularity in ms (!! why is this a t_ptr_int ??)
-    t_ptr_int   initiallow; // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
-    t_ptr_int   initialhigh;// store inital loop high point after 'initial loop' (default -1 causes default phase 1)
+    interp_type_t interpflag; // playback interpolation
+    long   recordhead;      // record head position in samples
+    long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
+    long   maxloop;         // the overall loop end recorded so far (in samples), is static value
+    long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
+    long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
+    long   recordfade;      // fade counter for recording in samples
+    long   playfade;        // fade counter for playback in samples
+    long   globalramp;      // general fade time (for both recording and playback) in samples
+    long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
+    switchramp_type_t snrtype;    // switch n ramp curve option choice
+    long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
+    long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
+    long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
-    char    statecontrol;   // master looper state control (not 'human state')
-    char    statehuman;     // master looper state human logic (not 'statecontrol') (0=stop, 1=play, 2=record, 3=overdub, 4=append 5=initial)
+    control_state_t statecontrol;   // master looper state control (not 'human state')
+    human_state_t statehuman;       // master looper state human logic (not 'statecontrol')
 
     char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
     char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
@@ -130,7 +131,7 @@ static inline double spline_interp(double f, double w, double x, double y, doubl
 
 
 // easing function for recording (with ipoke)
-static inline double ease_record(double y1, char updwn, double globalramp, t_ptr_int playfade)  // !! rewrite !!
+static inline double ease_record(double y1, char updwn, double globalramp, long playfade)  // !! rewrite !!
 {
     double ifup    = (1.0 - (((double)playfade) / globalramp)) * PI;
     double ifdown  = (((double)playfade) / globalramp) * PI;
@@ -138,201 +139,131 @@ static inline double ease_record(double y1, char updwn, double globalramp, t_ptr
 }
 
 // easing function for switch & ramp
-static inline double ease_switchramp(double y1, double snrfade, t_ptr_int snrtype)
+static inline double ease_switchramp(double y1, double snrfade, switchramp_type_t snrtype)
 {
     switch (snrtype)
     {
-        case 0: y1  = y1 * (1.0 - snrfade);                                             // case 0 = linear
+        case SWITCHRAMP_LINEAR: 
+            y1  = y1 * (1.0 - snrfade);
             break;
-        case 1: y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));                     // case 1 = sine ease in
+        case SWITCHRAMP_SINE_IN: 
+            y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));
             break;
-        case 2: y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));                       // case 2 = cubic ease in
+        case SWITCHRAMP_CUBIC_IN: 
+            y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));
             break;
-        case 3: snrfade = snrfade - 1;
-                y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));                   // case 3 = cubic ease out
+        case SWITCHRAMP_CUBIC_OUT: 
+            snrfade = snrfade - 1;
+            y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));
             break;
-        case 4: snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
-                y1  = y1 * (1.0 - snrfade);                                             // case 4 = exponential ease in
+        case SWITCHRAMP_EXPO_IN: 
+            snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
+            y1  = y1 * (1.0 - snrfade);
             break;
-        case 5: snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
-                y1  = y1 * (1.0 - snrfade);                                             // case 5 = exponential ease out
+        case SWITCHRAMP_EXPO_OUT: 
+            snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
+            y1  = y1 * (1.0 - snrfade);
             break;
-        case 6: if ((snrfade > 0) && (snrfade < 0.5))
-                    y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
-                else if ((snrfade < 1) && (snrfade > 0.5))
-                    y1 = y1 * (1.0 - (-0.5 * pow(2, ((-20 * snrfade) + 10)) + 1));      // case 6 = exponential ease in/out
+        case SWITCHRAMP_EXPO_IN_OUT: 
+            if ((snrfade > 0) && (snrfade < 0.5))
+                y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
+            else if ((snrfade < 1) && (snrfade > 0.5))
+                y1 = y1 * (1.0 - (-0.5 * pow(2, ((-20 * snrfade) + 10)) + 1));
             break;
     }
     return  y1;
 }
 
 // easing function for buffer read
-static inline void ease_bufoff(t_ptr_int framesm1, float *b, t_ptr_int pchans, t_ptr_int markposition, char direction, double globalramp)
+static inline void ease_bufoff(long framesm1, float *buf, long pchans, long markposition, char direction, double globalramp)
 {
-    long i, fadpos;
-    
+    long i, fadpos, c;
+    double fade;
+
+    if (globalramp <= 0) return;
+
     for (i = 0; i < globalramp; i++)
     {
         fadpos = markposition + (direction * i);
-        
-        if ( !((fadpos < 0) || (fadpos > framesm1)) )
+
+        if (fadpos < 0 || fadpos > framesm1)
+            continue;
+
+        fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
+
+        for (c = 0; c < pchans; c++)
         {
-            b[fadpos * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
+            buf[(fadpos * pchans) + c] *= fade;
         }
     }
-    
-    return;
 }
 
-// easing function for buffer write
-static inline void ease_bufon(t_ptr_int framesm1, float *b, t_ptr_int pchans, t_ptr_int markposition1, t_ptr_int markposition2, char direction, double globalramp)
+static inline void apply_fade(long pos, long framesm1, float *buf, long pchans, double fade)
 {
-    long i, fadpos1, fadpos2, fadpos3;
-    
-    for (i = 0; i < globalramp; i++)
-    {
-        fadpos1 = (markposition1 + (-direction)) + (-direction * i);
-        fadpos2 = (markposition2 + (-direction)) + (-direction * i);
-        fadpos3 =  markposition2 + (direction * i);
-        
-        if ( !((fadpos1 < 0) || (fadpos1 > framesm1)) )
-        {
-            b[fadpos1 * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos1 * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos1 * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos1 * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
-        }
-        
-        if ( !((fadpos2 < 0) || (fadpos2 > framesm1)) )
-        {
-            b[fadpos2 * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos2 * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos2 * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos2 * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
-        }
-        
-        if ( !((fadpos3 < 0) || (fadpos3 > framesm1)) )
-        {
-            b[fadpos3 * pchans] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-            
-            if (pchans > 1)
-            {
-                b[(fadpos3 * pchans) + 1] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                
-                if (pchans > 2)
-                {
-                    b[(fadpos3 * pchans) + 2] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    
-                    if (pchans > 3)
-                    {
-                        b[(fadpos3 * pchans) + 3] *= 0.5 * ( 1.0 - cos( (((double)i) / globalramp) * PI));
-                    }
-                }
-            }
-        }
+    if (pos < 0 || pos > framesm1)
+        return;
+    for (long c = 0; c < pchans; c++) {
+        buf[(pos * pchans) + c] *= fade;
     }
-    
-    return;
+};
+
+
+// easing function for buffer write
+static inline void ease_bufon(long framesm1, float *buf, long pchans, long markposition1, long markposition2, char direction, double globalramp)
+{
+    long fadpos[3];
+    double fade;
+
+    for (long i = 0; i < globalramp; i++)
+    {
+        fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
+        fadpos[0] = (markposition1 - direction) - (direction * i);
+        fadpos[1] = (markposition2 - direction) - (direction * i);
+        fadpos[2] =  markposition2 + (direction * i);
+
+        apply_fade(fadpos[0], framesm1, buf, pchans, fade);
+        apply_fade(fadpos[1], framesm1, buf, pchans, fade);
+        apply_fade(fadpos[2], framesm1, buf, pchans, fade);
+    }
 }
 
 // interpolation points
-static inline void interp_index(t_ptr_int playhead, t_ptr_int *indx0, t_ptr_int *indx1, t_ptr_int *indx2, t_ptr_int *indx3, char direction, char directionorig, t_ptr_int maxloop, t_ptr_int framesm1)
+// Helper to wrap index for forward or reverse looping
+static inline long wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
+    if (directionorig >= 0) {
+        // Forward: wrap between 0 and maxloop
+        if (idx < 0)
+            return (maxloop + 1) + idx;
+        else if (idx > maxloop)
+            return idx - (maxloop + 1);
+        else
+            return idx;
+    } else {
+        // Reverse: wrap between (framesm1 - maxloop) and framesm1
+        long min = framesm1 - maxloop;
+        if (idx < min)
+            return framesm1 - (min - idx);
+        else if (idx > framesm1)
+            return min + (idx - framesm1);
+        else
+            return idx;
+    }
+}
+
+static inline void interp_index(
+    long playhead, long *indx0, long *indx1, long *indx2, long *indx3,
+    char direction, char directionorig, long maxloop, long framesm1)
 {
-    *indx0 = playhead - direction;                                   // calc of indecies for interpolations
-    
-    if (directionorig >= 0) {
-        if (*indx0 < 0) {
-            *indx0 = (maxloop + 1) + *indx0;
-        } else if (*indx0 > maxloop) {
-            *indx0 = *indx0 - (maxloop + 1);
-        }
-    } else {
-        if(*indx0 < (framesm1 - maxloop)) {
-            *indx0 = framesm1 - ((framesm1 - maxloop) - *indx0);
-        } else if (*indx0 > framesm1) {
-            *indx0 = (framesm1 - maxloop) + (*indx0 - framesm1);
-        }
-    }
-    
+    *indx0 = wrap_index(playhead - direction, directionorig, maxloop, framesm1);
     *indx1 = playhead;
-    *indx2 = playhead + direction;
-    
-    if (directionorig >= 0) {
-        if (*indx2 < 0) {
-            *indx2 = (maxloop + 1) + *indx2;
-        } else if (*indx2 > maxloop) {
-            *indx2 = *indx2 - (maxloop + 1);
-        }
-    } else {
-        if (*indx2 < (framesm1 - maxloop)) {
-            *indx2 = framesm1 - ((framesm1 - maxloop) - *indx2);
-        } else if (*indx2 > framesm1) {
-            *indx2 = (framesm1 - maxloop) + (*indx2 - framesm1);
-        }
-    }
-    
-    *indx3 = *indx2 + direction;
-    
-    if (directionorig >= 0) {
-        if(*indx3 < 0) {
-            *indx3 = (maxloop + 1) + *indx3;
-        } else if (*indx3 > maxloop) {
-            *indx3 = *indx3 - (maxloop + 1);
-        }
-    } else {
-        if (*indx3 < (framesm1 - maxloop)) {
-            *indx3 = framesm1 - ((framesm1 - maxloop) - *indx3);
-        } else if (*indx3 > framesm1) {
-            *indx3 = (framesm1 - maxloop) + (*indx3 - framesm1);
-        }
-    }
-    
-    return;
+    *indx2 = wrap_index(playhead + direction, directionorig, maxloop, framesm1);
+    *indx3 = wrap_index(*indx2 + direction, directionorig, maxloop, framesm1);
 }
 
 
 void ext_main(void *r)
 {
-    t_class *c = class_new("karma~", (method)karma_new, (method)karma_free, (long)sizeof(t_karma), 0L, A_GIMME, 0);
+    t_class *c = class_new("karma_post~", (method)karma_new, (method)karma_free, (long)sizeof(t_karma), 0L, A_GIMME, 0);
 
     class_addmethod(c, (method)karma_select_start,  "position", A_FLOAT,    0);
     class_addmethod(c, (method)karma_select_size,   "window",   A_FLOAT,    0);
@@ -392,14 +323,16 @@ void ext_main(void *r)
     ps_milliseconds = gensym("milliseconds");
     ps_originalloop = gensym("reset");
 }
+// clang-format on
+
 
 void *karma_new(t_symbol *s, short argc, t_atom *argv)
 {
     t_karma *x;
     t_symbol *bufname = 0;
     long syncoutlet = 0;
-    t_ptr_int chans = 0;
-    t_ptr_int attrstart = attr_args_offset(argc, argv);
+    long chans = 0;
+    long attrstart = attr_args_offset(argc, argv);
     
     x = (t_karma *)object_alloc(karma_class);
     x->initskip = 0;
@@ -425,13 +358,16 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
 
     if (x) {
         if (chans <= 1) {
-            dsp_setup((t_pxobject *)x, 2);  // one audio channel inlet, one signal speed inlet
+            // one audio channel inlet, one signal speed inlet
+            dsp_setup((t_pxobject *)x, 2);
             chans = 1;
         } else if (chans == 2) {
-            dsp_setup((t_pxobject *)x, 3);  // two audio channel inlets, one signal speed inlet
+            // two audio channel inlets, one signal speed inlet
+            dsp_setup((t_pxobject *)x, 3);
             chans = 2;
         } else {
-            dsp_setup((t_pxobject *)x, 5);  // four audio channel inlets, one signal speed inlet
+            // four audio channel inlets, one signal speed inlet
+            dsp_setup((t_pxobject *)x, 5);  
             chans = 4;
         }
         
@@ -442,18 +378,44 @@ void *karma_new(t_symbol *s, short argc, t_atom *argv)
         x->ssr = sys_getsr();
         x->vs = sys_getblksize();
         x->vsnorm = x->vs / x->ssr;
-        x->overdubprev = x->overdubamp = x->speedfloat = 1.0;
-        x->islooped = x->snrtype = x->interpflag = 1;
-        x->playfadeflag = x->recfadeflag = x->recordinit = x->initinit = x->append = x->jumpflag = 0;
-        x->statecontrol = x->statehuman = x->stopallowed = 0;
-        x->go = x->triginit = 0;
-        x->directionprev = x->directionorig = x->recordprev = x->record = x->alternateflag = x->recendmark = 0;
-        x->pokesteps = x->wrapflag = x->loopdetermine = 0;
+
+        x->overdubprev = 1.0;
+        x->overdubamp = 1.0;
+        x->speedfloat = 1.0;
+        x->islooped = 1;
+
+        x->snrtype = SWITCHRAMP_SINE_IN;
+        x->interpflag = INTERP_CUBIC;
+        x->playfadeflag = 0;
+        x->recfadeflag = 0;
+        x->recordinit = 0;
+        x->initinit = 0;
+        x->append = 0;
+        x->jumpflag = 0;
+        x->statecontrol = CONTROL_STATE_ZERO;
+        x->statehuman = HUMAN_STATE_STOP;
+        x->stopallowed = 0;
+        x->go = 0;
+        x->triginit = 0;
+        x->directionprev = 0;
+        x->directionorig = 0;
+        x->recordprev = 0;
+        x->record = 0;
+        x->alternateflag = 0;
+        x->recendmark = 0;
+        x->pokesteps = 0;
+        x->wrapflag = 0;
+        x->loopdetermine = 0;
         x->writeval1 = x->writeval2 = x->writeval3 = x->writeval4 = 0;
-        x->maxhead = x->playhead = 0.0;
-        x->initiallow = x->initialhigh = -1;
-        x->selstart = x->jumphead = x->snrfade = 0.0;
-        x->o1dif = x->o2dif = x->o3dif = x->o4dif = x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
+        x->maxhead = 0.0;
+        x->playhead = 0.0;
+        x->initiallow = -1;
+        x->initialhigh = -1;
+        x->selstart = 0.0;
+        x->jumphead = 0.0;
+        x->snrfade = 0.0;
+        x->o1dif = x->o2dif = x->o3dif = x->o4dif = 0.0;
+        x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
         
         if (bufname != 0)
             x->bufname = bufname;   // !! setup is in 'karma_buf_setup()' called by 'karma_dsp64()'...
@@ -505,8 +467,7 @@ void karma_free(t_karma *x)
         dsp_free((t_pxobject *)x);
 
         object_free(x->buf);
-        object_free(x->buf_temp);
-        
+        object_free(x->buf_temp);        
         object_free(x->tclock);
         object_free(x->messout);
     }
@@ -557,7 +518,7 @@ void karma_buf_setup(t_karma *x, t_symbol *s)
 void karma_buf_modify(t_karma *x, t_buffer_obj *b)
 {
     double      modbsr, modbmsr;
-    t_ptr_int   modchans, modframes;
+    long   modchans, modframes;
     
     if (b) {
         modbsr     = buffer_getsamplerate(b);
@@ -592,7 +553,7 @@ void karma_buf_values_internal(t_karma *x, double templow, double temphigh, long
 //  t_symbol *loop_points_sym = 0;                      // dev
     t_symbol *caller_sym = 0;
     t_buffer_obj *buf;
-    t_ptr_int bframesm1;//, bchanscnt;
+    long bframesm1;//, bchanscnt;
 //  long bchans;
     double bframesms, bvsnorm, bvsnorm05;               // !!
     double low, lowtemp, high, hightemp;
@@ -719,191 +680,34 @@ void karma_buf_values_internal(t_karma *x, double templow, double temphigh, long
 // pete says: i know this proof-of-concept branching is horrible, will rewrite soon...
 void karma_buf_change_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv)   // " set ..... "
 {
-    t_bool callerid;
-    t_buffer_obj *buf_temp;
-    t_symbol *b;
-    t_symbol *b_temp = 0;
-    t_symbol *loop_points_sym = 0;
-    long loop_points_flag;              // specify start/end loop points: 0 = in phase, 1 = in samples, 2 = in milliseconds (default)
-    double templow, temphigh, temphightemp;
+    t_bool callerid = true;  // identify caller of 'karma_buf_values_internal()'
+    t_symbol *bufname;
+    long loop_points_flag;
+    double templow, temphigh;
 
-    // error check .....
-
-    b_temp  = atom_getsym(argv + 0);    // already arg checked to be A_SYM in karma_buf_change()
+    // Get buffer name from first argument (already validated in karma_buf_change)
+    bufname = atom_getsym(argv + 0);
     
-    if (b_temp == ps_nothing)
-    {
-        object_error((t_object *)x, "%s requires a valid buffer~ declaration (none found)", s->s_name);
+    // Validate buffer and set up references
+    if (!karma_validate_buffer(x, bufname)) {
         return;
-        
-    } else {
-        // !! this "buf_temp" assignment is to check for a valid buffer, so that karma~ playback...
-        // ...continues with main assigned "buf" even if symbol given is in error !!
-        // this is slow (& expensive ??) - there must be a better way ??
-        // use 'buffer_ref_exists()' instead ??
-        
-        x->bufname_temp = b_temp;
-        
-        if (!x->buf_temp)
-            x->buf_temp = buffer_ref_new((t_object *)x, b_temp);
-        else                            // this should never get called here ??
-            buffer_ref_set(x->buf_temp, b_temp);
-        
-        buf_temp        = buffer_ref_getobject(x->buf_temp);
-        
-        if (buf_temp == NULL) {
-            
-            object_warn((t_object *)x, "cannot find any buffer~ named %s, ignoring", b_temp->s_name);
-            x->buf_temp = 0;            // should dspfree the temp buffer here ??
-            object_free(x->buf_temp);   // ... ??
-            return;
+    }
+    
+    // Reset player state
+    x->directionorig = 0;
+    x->maxhead = x->playhead = 0.0;
+    x->recordhead = -1;
 
-        } else {
-            
-            x->buf_temp = 0;            // should dspfree the temp buffer here ??
-            object_free(x->buf_temp);   // ... ??
-            callerid = true;            // identify caller of 'karma_buf_values_internal()'
-            
-            b  = atom_getsym(argv + 0); // already arg checked
-
-            x->bufname = b;
-            
-            if (!x->buf) {
-                x->buf = buffer_ref_new((t_object *)x, b);
-            } else {
-                buffer_ref_set(x->buf, b);
-            }
-
-            //buf = buffer_ref_getobject(x->buf);   // no need in this method
-
-            // !! if just "set [buffername]" with no additional args and [buffername]...
-            // ...already set, message will reset loop points to min / max !!
-            loop_points_flag = 2;
-            templow = -1.0;
-            temphigh = -1.0;
-
-    // ..... do it .....
-
-            // ... obviously pete is a bit confused about all this ...
-            x->directionorig = 0;
-            x->maxhead = x->playhead = 0.0;             // x->maxhead = x->playhead;    // ?? 'takeover' should be an option ??
-            x->recordhead = -1;
-
-            // maximum length message (4[6] atoms after 'set') = " set ...
-            // ... 0::symbol::buffername [1::float::loop start] [2::float::loop end] [3::symbol::loop points type] ...
-            // ... [4::symbol::offset 5::int::channel # offset] "   // <<-- not implemented "offset n" yet
-
-            if (argc >= 4) {
-                
-                if (atom_gettype(argv + 3) == A_SYM) {
-                    loop_points_sym = atom_getsym(argv + 3);
-                    if (loop_points_sym == ps_dummy)    // !! "dummy" is silent++, move on...
-                        loop_points_flag = 2;
-                    else if ( (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph")) )// phase
-                        loop_points_flag = 0;
-                    else if ( (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps")) )// samps
-                        loop_points_flag = 1;
-                    else                                // ms or anything
-                        loop_points_flag = 2;
-                } else if (atom_gettype(argv + 3) == A_LONG) {      // can just be int 0..2
-                    loop_points_flag = atom_getlong(argv + 3);
-                } else if (atom_gettype(argv + 3) == A_FLOAT) {     // convert if error float
-                    loop_points_flag = (long)atom_getfloat(argv + 3);
-                } else {
-                    object_warn((t_object *) x, "%s message does not understand arg no.4, using milliseconds for args 2 & 3", s->s_name);
-                    loop_points_flag = 2;               // default ms
-                }
-
-                loop_points_flag = CLAMP(loop_points_flag, 0, 2);
-
-            }
-            
-            if (argc >= 3) {
-                
-                if (atom_gettype(argv + 2) == A_FLOAT) {
-                    temphigh = atom_getfloat(argv + 2);
-                    if (temphigh < 0.) {
-                        object_warn((t_object *) x, "loop maximum cannot be less than 0., resetting");
-                    }   // !! do maximum check in karma_buf_values_internal() !!
-                } else if (atom_gettype(argv + 2) == A_LONG) {
-                    temphigh = (double)atom_getlong(argv + 2);
-                    if (temphigh < 0.) {
-                        object_warn((t_object *) x, "loop maximum cannot be less than 0., resetting");
-                    }   // !! do maximum check in karma_buf_values_internal() !!
-                } else if ( (atom_gettype(argv + 2) == A_SYM) && (argc < 4) ) {
-                    loop_points_sym = atom_getsym(argv + 2);
-                    if (loop_points_sym == ps_dummy)    // !! "dummy" is silent++, move on...
-                        loop_points_flag = 2;
-                    else if ( (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph")) )// phase
-                            loop_points_flag = 0;
-                    else if ( (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps")) )// samps
-                            loop_points_flag = 1;
-                    else if ( (loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS")) || (loop_points_sym == gensym("ms")) )// ms
-                            loop_points_flag = 2;
-                    else {
-                        object_warn((t_object *) x, "%s message does not understand arg no.3, setting to milliseconds", s->s_name);
-                        loop_points_flag = 2;
-                    }
-                } else {
-                    object_warn((t_object *) x, "%s message does not understand arg no.3, setting unit to maximum", s->s_name);
-                }
-            }
-                
-            if (argc >= 2) {
-
-                if (atom_gettype(argv + 1) == A_FLOAT) {
-                    if (temphigh < 0.) {
-                        temphightemp = temphigh;
-                        temphigh = atom_getfloat(argv + 1);
-                        templow = temphightemp;
-                    } else {
-                        templow = atom_getfloat(argv + 1);
-                        if (templow < 0.) {
-                            object_warn((t_object *) x, "loop minimum cannot be less than 0., setting to 0.");
-                            templow = 0.;
-                        }   // !! do maximum check in karma_buf_values_internal() !!
-                    }
-                } else if (atom_gettype(argv + 1) == A_LONG) {
-                    if (temphigh < 0.) {
-                        temphightemp = temphigh;
-                        temphigh = (double)atom_getlong(argv + 1);
-                        templow = temphightemp;
-                    } else {
-                        templow = (double)atom_getlong(argv + 1);
-                        if (templow < 0.) {
-                            object_warn((t_object *) x, "loop minimum cannot be less than 0., setting to 0.");
-                            templow = 0.;
-                        }   // !! do maximum check in karma_buf_values_internal() !!
-                    }
-                } else if (atom_gettype(argv + 1) == A_SYM) {
-                    loop_points_sym = atom_getsym(argv + 1);
-                    if (loop_points_sym == ps_dummy)    // !! "dummy" is silent++, move on...
-                        loop_points_flag = 2;           // default ms
-                    else if (loop_points_sym == ps_originalloop) {      // "reset" message not callable with 'set [buffername]' message
-                        object_warn((t_object *) x, "%s message does not understand 'buffername' followed by %s message, ignoring", s->s_name, loop_points_sym);
-                        object_warn((t_object *) x, "(the %s message cannot be used whilst changing buffer~ reference", loop_points_sym);
-                        object_warn((t_object *) x, "use %s %s message or just %s message instead)", gensym("setloop"), ps_originalloop, gensym("resetloop"));
-                        return;         // exit         // or should just default to ms here and carry on ??
-                    } else
-                        object_warn((t_object *) x, "%s message does not understand arg no.2, setting loop points to minimum (and maximum)", s->s_name);
-                } else {
-                    object_warn((t_object *) x, "%s message does not understand arg no.2, setting loop points to defaults", s->s_name);
-                }
-                
-            }
-/*
-            // dev
-            post("%s message: buffer~ %s", s->s_name, b->s_name);
-*/
-            karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
-
-            //x->buf_temp = 0;                          // should (dsp)free here and not earlier ??
-            //object_free(x->buf_temp);
-
-        }
-
+    // Process arguments to extract loop points and settings
+    karma_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
+    
+    // Check for early return flag from ps_originalloop handling
+    if (templow == -999.0) {
+        return;
     }
 
+    // Apply the buffer values
+    karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
 }
 
 void karma_buf_change(t_karma *x, t_symbol *s, short ac, t_atom *av)    // " set ..... "
@@ -1067,7 +871,7 @@ void karma_setloop_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv)  
 void karma_setloop(t_karma *x, t_symbol *s, short ac, t_atom *av)   // " setloop ..... "
 {
     t_symbol *reset_sym = 0;
-    long points_flag = 1;                   // initial low/high points stored as (t_ptr_int)samples internally
+    long points_flag = 1;                   // initial low/high points stored as (long)samples internally
     bool callerid = false;                  // false = called from "setloop"
     double initiallow = (double)x->initiallow;
     double initialhigh = (double)x->initialhigh;
@@ -1101,7 +905,7 @@ void karma_resetloop(t_karma *x)                // " resetloop " message only
 {
     long points_flag = 1;                       // initial low/high points stored as samples internally
     bool callerid = false;                      // false = called from "resetloop"
-    double initiallow = (double)x->initiallow;  // initial low/high points stored as t_ptr_int...
+    double initiallow = (double)x->initiallow;  // initial low/high points stored as long...
     double initialhigh = (double)x->initialhigh;// ...
 
 //  if (!x->recordinit)
@@ -1116,10 +920,10 @@ void karma_clock_list(t_karma *x)
     
     if (rlgtz)                                      // ('reportlist 0' == off, else milliseconds)
     {
-        t_ptr_int frames        = x->bframes - 1;   // !! no '- 1' ??
-        t_ptr_int maxloop       = x->maxloop;
-        t_ptr_int minloop       = x->minloop;
-        t_ptr_int setloopsize;
+        long frames        = x->bframes - 1;   // !! no '- 1' ??
+        long maxloop       = x->maxloop;
+        long minloop       = x->minloop;
+        long setloopsize;
         
         double bmsr         = x->bmsr;
         double playhead     = x->playhead;
@@ -1137,7 +941,7 @@ void karma_clock_list(t_karma *x)
         t_bool record       = x->record;                            // pointless (and actually is 'record' or 'overdub')
         t_bool go           = x->go;                                // pointless (and actually this is on whenever transport is,...
                                                                     // ...not stricly just 'play')
-        char statehuman     = x->statehuman;
+        human_state_t statehuman     = x->statehuman;
                                                     //  ((playhead-(frames-maxloop))/setloopsize) : ((playhead-startloop)/setloopsize)  // ??
         normalisedposition  = CLAMP( directflag ? ((playhead-(frames-setloopsize))/setloopsize) : ((playhead-minloop)/setloopsize), 0., 1. );
         
@@ -1213,8 +1017,6 @@ void karma_assist(t_karma *x, void *b, long m, long a, char *s)
     }
 }
 
-//  //  //
-
 void karma_float(t_karma *x, double speedfloat)
 {
     long inlet = proxy_getinlet((t_object *)x);
@@ -1224,65 +1026,10 @@ void karma_float(t_karma *x, double speedfloat)
         x->speedfloat = speedfloat;
     }
 }
-/*
-void karma_select_internal(t_karma *x, double selectionstart, double selectionlength)
-{
-    t_ptr_int bfrmaesminusone;
-    double setloopsize;
 
-    double minsampsnorm = x->bvsnorm * 0.5;         // half vectorsize samples minimum as normalised value  // !! buffer sr !!
-    x->selstart = selectionstart;
-    x->selection = (selectionlength < minsampsnorm) ? minsampsnorm : selectionlength;
-
-    // for dealing with selection-out-of-bounds logic:
-
-    if (!x->loopdetermine)
-    {
-        setloopsize = x->maxloop - x->minloop;
-
-        if (x->directionorig < 0)   // if originally in reverse
-        {
-            bfrmaesminusone = x->bframes - 1;
-            
-            x->startloop = CLAMP( (bfrmaesminusone - x->maxloop) + (x->selstart * x->maxloop), bfrmaesminusone - x->maxloop, bfrmaesminusone );
-            x->endloop = x->startloop + (x->selection * x->maxloop);
-
-            if (x->endloop > bfrmaesminusone) {
-                x->endloop = (bfrmaesminusone - setloopsize) + (x->endloop - bfrmaesminusone);
-                x->wrapflag = 1;
-            } else {
-                x->wrapflag = 0;    // selection-in-bounds
-            }
-            
-        } else {                    // if originally forwards
-
-            x->startloop = CLAMP( selectionstart * x->maxloop, x->minloop, x->maxloop );
-            x->endloop = x->startloop + (x->selection * setloopsize);
-            
-            if (x->endloop > x->maxloop) {
-                x->endloop = x->endloop - setloopsize;
-                x->wrapflag = 1;
-            } else {
-                x->wrapflag = 0;    // selection-in-bounds
-            }
-            
-        }
-    }
-}
-
-void karma_select_start(t_karma *x, double positionstart)
-{
-    karma_select_internal(x, positionstart, x->selection);
-}
-
-void karma_select_size(t_karma *x, double duration)
-{
-    karma_select_internal(x, x->selstart, duration);
-}
-*/
 void karma_select_start(t_karma *x, double positionstart)   // positionstart = "position" float message
 {
-    t_ptr_int bfrmaesminusone, setloopsize;
+    long bfrmaesminusone, setloopsize;
     x->selstart = CLAMP(positionstart, 0., 1.);
     
     // for dealing with selection-out-of-bounds logic:
@@ -1323,7 +1070,7 @@ void karma_select_start(t_karma *x, double positionstart)   // positionstart = "
 
 void karma_select_size(t_karma *x, double duration)     // duration = "window" float message
 {
-    t_ptr_int bfrmaesminusone, setloopsize;
+    long bfrmaesminusone, setloopsize;
     
     //double minsampsnorm = x->bvsnorm * 0.5;           // half vectorsize samples minimum as normalised value  // !! buffer sr !!
     //x->selection = (duration < 0.0) ? 0.0 : duration; // !! allow zero for rodrigo !!
@@ -1364,9 +1111,10 @@ void karma_stop(t_karma *x)
 {
     if (x->initinit) {
         if (x->stopallowed) {
-            x->statecontrol = x->alternateflag ? 6 : 7;
+            x->statecontrol = x->alternateflag ? CONTROL_STATE_STOP_ALT
+                                               : CONTROL_STATE_STOP_REGULAR;
             x->append = 0;
-            x->statehuman = 0;
+            x->statehuman = HUMAN_STATE_STOP;
             x->stopallowed = 0;
         }
     }
@@ -1375,134 +1123,101 @@ void karma_stop(t_karma *x)
 void karma_play(t_karma *x)
 {
     if ((!x->go) && (x->append)) {
-        x->statecontrol = 9;
+        x->statecontrol = CONTROL_STATE_APPEND;
         x->snrfade = 0.0;   // !! should disable ??
     } else if ((x->record) || (x->append)) {
-        x->statecontrol = x->alternateflag ? 4 : 3;
+        x->statecontrol = x->alternateflag ? CONTROL_STATE_PLAY_ALT
+                                           : CONTROL_STATE_RECORD_OFF;
     } else {
-        x->statecontrol = 5;
+        x->statecontrol = CONTROL_STATE_PLAY_ON;
     }
     
     x->go = 1;
-    x->statehuman = 1;
+    x->statehuman = HUMAN_STATE_PLAY;
     x->stopallowed = 1;
 }
 
-void karma_record(t_karma *x)
-{
-    float *b;
-    long i;
-    char sc, sh;
-    t_bool record, go, altflag, append, init;
-    t_ptr_int bframes, rchans;  // !! local 'rchans' = 'nchans' not 'bchans' !!
-    
-    t_buffer_obj *buf = buffer_ref_getobject(x->buf);
 
-    record = x->record;
-    go = x->go;
-    altflag = x->alternateflag;
-    append = x->append;
-    init = x->recordinit;
-    // sc = x->statecontrol; // not used
-    sh = x->statehuman;
-    
-    x->stopallowed = 1;
-    
-    if (record) {
-        if (altflag) {
-            sc = 2;
-            sh = 3;         // ?? is this wrong?, it is not neccessarily overdub ??
-        } else {
-            sc = 3;
-            sh = (sh == 3) ? 1 : 2; // !! hack !! (but works !!)
-        }
-    } else {
-        if (append) {
-            if (go) {
-                if (altflag) {
-                    sc = 2;
-                    sh = 3; // ?? is this wrong?, it is not neccessarily overdub ??
-                } else {
-                    sc = 10;// !!
-                    sh = 4;
-                }
-            } else {
-                sc = 1;
-                sh = 5;
-            }
-        } else {
-            if (!go) {
-                init = 1;
-                if (buf) {
-                    rchans = x->bchans;     // !! nchans not bchans = only record onto channel(s) currently used by karma~...
-                    bframes = x->bframes;   // ...(leave other channels in tact)    <<-- BOLLOX
-                    b = buffer_locksamples(buf);
-                    if (!b)
-                        goto zero;
-                    
-                    for (i = 0; i < bframes; i++) {
-                        if (rchans > 1) {
-                            b[i * rchans] = 0.0;
-                            b[(i * rchans) + 1] = 0.0;
-                            if (rchans > 2) {
-                                b[(i * rchans) + 2] = 0.0;
-                                if (rchans > 3) {
-                                    b[(i * rchans) + 3] = 0.0;
-                                }
-                            }
-                        } else {
-                            b[i] = 0.0;
-                        }
-                    }
-                    
-                    buffer_setdirty(buf);
-                    buffer_unlocksamples(buf);
-                }
-                sc = 1;
-                sh = 5;
-            } else {            // !! not 'record', not 'append', is 'go' ??
-                sc = 11;        // !! ?? seems wrong
-                sh = 3;         // !! is this overdub ?? seems wrong
-            }
+// Helper to clear buffer
+t_bool _clear_buffer(t_buffer_obj* buf, long bframes, long rchans)
+{
+    float* b = buffer_locksamples(buf);
+    if (!b)
+        return 0;
+    for (long i = 0; i < bframes; i++) {
+        for (long c = 0; c < rchans; c++) {
+            b[i * rchans + c] = 0.0f;
         }
     }
-    
-    go = 1;
-    x->go = go;
+    buffer_setdirty(buf);
+    buffer_unlocksamples(buf);
+    return 1;
+};
+
+void karma_record(t_karma* x)
+{
+    t_buffer_obj* buf = buffer_ref_getobject(x->buf);
+    control_state_t sc = CONTROL_STATE_ZERO;
+    human_state_t sh = x->statehuman;
+    t_bool record   = x->record;
+    t_bool go       = x->go;
+    t_bool altflag  = x->alternateflag;
+    t_bool append   = x->append;
+    t_bool init     = x->recordinit;
+
+    x->stopallowed = 1;
+
+    if (record) {
+        if (altflag) {
+            sc = CONTROL_STATE_RECORD_ALT;
+            sh = HUMAN_STATE_OVERDUB;
+        } else {
+            sc = CONTROL_STATE_RECORD_OFF;
+            sh = (sh == HUMAN_STATE_OVERDUB) ? HUMAN_STATE_PLAY
+                                             : HUMAN_STATE_RECORD;
+        }
+    } else if (append) {
+        if (go) {
+            if (altflag) {
+                sc = CONTROL_STATE_RECORD_ALT;
+                sh = HUMAN_STATE_OVERDUB;
+            } else {
+                sc = CONTROL_STATE_APPEND_SPECIAL;
+                sh = HUMAN_STATE_APPEND;
+            }
+        } else {
+            sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
+            sh = HUMAN_STATE_INITIAL;
+        }
+    } else if (!go) {
+        init = 1;
+        if (buf) {
+            long rchans = x->bchans;
+            long bframes = x->bframes;
+            _clear_buffer(buf, bframes, rchans);
+        }
+        sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
+        sh = HUMAN_STATE_INITIAL;
+    } else {
+        sc = CONTROL_STATE_RECORD_ON;
+        sh = HUMAN_STATE_OVERDUB;
+    }
+
+    x->go = 1;
     x->recordinit = init;
     x->statecontrol = sc;
     x->statehuman = sh;
-    
-zero:
-    return;
 }
-/*
-// store initial loop recording points on command - pointless
-void karma_initial_points(t_karma *x, t_bool force)
-{
-    if (force) {    // "resetloop force" or "setloop reset force"
-        x->initiallow = x->minloop;                 // in samples...
-        x->initialhigh = x->maxloop;                // ...
-    } else {        // "resetloop" or "setloop reset"
-        if (x->recordinit) {
-            if (x->loopdetermine) {
-                if (x->recendmark) {
-                    x->initiallow = x->minloop;     // in samples...
-                    x->initialhigh = x->maxloop;    // ...
-                }
-            }
-        }
-    }
-}
-*/
+
+
 void karma_append(t_karma *x)
 {
     if (x->recordinit) {
         if ((!x->append) && (!x->loopdetermine)) {
             x->append = 1;
             x->maxloop = (x->bframes - 1);
-            x->statecontrol = 9;
-            x->statehuman = 4;
+            x->statecontrol = CONTROL_STATE_APPEND;
+            x->statehuman = HUMAN_STATE_APPEND;
             x->stopallowed = 1;
         } else {
             object_error((t_object *)x, "can't append if already appending, or during 'initial-loop', or if buffer~ is full");
@@ -1516,34 +1231,20 @@ void karma_overdub(t_karma *x, double amplitude)
 {
     x->overdubamp = CLAMP(amplitude, 0.0, 1.0);
 }
-/*
-void karma_jump(t_karma *x, double jumpposition)
-{
-    if (x->initinit) {
-        if ((x->loopdetermine) && (!x->record)) {  // if (!((x->loopdetermine) && (!x->record))) ...
-                                                // ... ?? ...
-        } else {
-            x->statecontrol = 8;
-            x->jumphead = jumpposition;
-//          x->statehuman = 1;                  // ??
-            x->stopallowed = 1;
-        }
-    }
-}
-*/
+
+
 void karma_jump(t_karma *x, double jumpposition)
 {
     if (x->initinit) {
         if ( !((x->loopdetermine)&&(!x->record)) ) {
-            x->statecontrol = 8;
+            x->statecontrol = CONTROL_STATE_JUMP;
             x->jumphead = CLAMP(jumpposition, 0., 1.);  // for now phase only, TODO - ms & samples
-//          x->statehuman = 1;                          // no - 'jump' is whatever 'statehuman' currently is (most likely 'play')
+//          x->statehuman = HUMAN_STATE_PLAY;           // no - 'jump' is whatever 'statehuman' currently is (most likely 'play')
             x->stopallowed = 1;
         }
     }
 }
 
-//  //  //
 
 t_max_err karma_syncout_set(t_karma *x, t_object *attr, long argc, t_atom *argv)
 {
@@ -1559,15 +1260,8 @@ t_max_err karma_syncout_set(t_karma *x, t_object *attr, long argc, t_atom *argv)
 
     return 0;
 }
-/*
-t_max_err karma_buf_notify(t_karma *x, t_symbol *s, t_symbol *msg, void *sndr, void *dat)
-{
-    if (msg == ps_buffer_modified)
-        x->buf_modified = true;
-    
-    return buffer_ref_notify(x->buf, s, msg, sndr, dat);
-}
-*/
+
+
 t_max_err karma_buf_notify(t_karma *x, t_symbol *s, t_symbol *msg, void *sndr, void *dat)
 {
 //  t_symbol *bufnamecheck = (t_symbol *)object_method((t_object *)sndr, gensym("getname"));
@@ -1590,43 +1284,161 @@ void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long v
     x->clockgo  = 1;
     
     if (x->bufname != 0) {
-//      if (buffer_ref_exists(x->buf)) {        // this hack does not really work...
-            if (!x->initinit)
-                karma_buf_setup(x, x->bufname); // does 'x->bvsnorm'    // !! this should be defered ??
-//      }
-        if (x->ochans > 1) {
-            if (x->ochans > 2) {
-                x->speedconnect = count[4];     // speed is 5th inlet
-                object_method(dsp64, gensym("dsp_add64"), x, karma_quad_perform, 0, NULL);
-                //post("karma~_v1.5_quad");
-            } else {
-                x->speedconnect = count[2];     // speed is 3rd inlet
-                object_method(dsp64, gensym("dsp_add64"), x, karma_stereo_perform, 0, NULL);
-                //post("karma~_v1.5_stereo");
-            }
-        } else {
-            x->speedconnect = count[1];         // speed is 2nd inlet
-            object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
-            //post("karma~_v1.5_mono");
-        }
+        if (!x->initinit)
+            karma_buf_setup(x, x->bufname); // does 'x->bvsnorm'    // !! this should be defered ??
+        x->speedconnect = count[1];         // speed is 2nd inlet
+        object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
         if (!x->initinit) {
             karma_select_size(x, 1.);
             x->initinit = 1;
         } else {
             karma_select_size(x, x->selection);
             karma_select_start(x, x->selstart);
-//          karma_select_internal(x, x->selstart, x->selection);
         }
-/*  } else {
-        object_error((t_object *)x, "fails without buffer~ name!");
-*/  }
+   }
 }
 
 
-//  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //
-//  //  //  //  //  //  //  //  (crazy) PERFORM ROUTINES    //  //  //  //  //  //  //  //  //
-//  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //  //
+/////////////////////////////////// PERFORM ROUTINES
 
+// Helper function: Process state control switch statement
+void karma_process_state_control(t_karma *x, control_state_t *statecontrol, t_bool *record, t_bool *go, t_bool *triginit, 
+                                 t_bool *loopdetermine, long *recordfade, char *recfadeflag, 
+                                 long *playfade, char *playfadeflag, char *recendmark)
+{
+    t_bool *alternateflag = &x->alternateflag;
+    double *snrfade = &x->snrfade;
+    
+    switch (*statecontrol)   // "all-in-one 'switch' statement to catch and handle all(most) messages" - raja
+    {
+        case CONTROL_STATE_ZERO:
+            break;
+        case CONTROL_STATE_RECORD_INITIAL_LOOP:
+            *record = *go = *triginit = *loopdetermine = 1;
+            *statecontrol = CONTROL_STATE_ZERO;
+            *recordfade = *recfadeflag = *playfade = *playfadeflag = 0;
+            break;
+        case CONTROL_STATE_RECORD_ALT:
+            *recendmark = 3;
+            *record = *recfadeflag = *playfadeflag = 1;
+            *statecontrol = CONTROL_STATE_ZERO;
+            *playfade = *recordfade = 0;
+            break;
+        case CONTROL_STATE_RECORD_OFF:
+            *recfadeflag = 1;
+            *playfadeflag = 3;
+            *statecontrol = CONTROL_STATE_ZERO;
+            *playfade = *recordfade = 0;
+            break;
+        case CONTROL_STATE_PLAY_ALT:
+            *recendmark = 2;
+            *recfadeflag = *playfadeflag = 1;
+            *statecontrol = CONTROL_STATE_ZERO;
+            *playfade = *recordfade = 0;
+            break;
+        case CONTROL_STATE_PLAY_ON:
+            *triginit = 1;   // ?!?!
+            *statecontrol = CONTROL_STATE_ZERO;
+            break;
+        case CONTROL_STATE_STOP_ALT:
+            *playfade = *recordfade = 0;
+            *recendmark = *playfadeflag = *recfadeflag = 1;
+            *statecontrol = CONTROL_STATE_ZERO;
+            break;
+        case CONTROL_STATE_STOP_REGULAR:
+            if (*record) {
+                *recordfade = 0;
+                *recfadeflag = 1;
+            }
+            *playfade = 0;
+            *playfadeflag = 1;
+            *statecontrol = CONTROL_STATE_ZERO;
+            break;
+        case CONTROL_STATE_JUMP:
+            if (*record) {
+                *recordfade = 0;
+                *recfadeflag = 2;
+            }
+            *playfade = 0;
+            *playfadeflag = 2;
+            *statecontrol = CONTROL_STATE_ZERO;
+            break;
+        case CONTROL_STATE_APPEND:
+            *playfadeflag = 4;   // !! modified in perform loop switch case(s) for playing behind append
+            *playfade = 0;
+            *statecontrol = CONTROL_STATE_ZERO;
+            break;
+        case CONTROL_STATE_APPEND_SPECIAL:
+            *record = *loopdetermine = *alternateflag = 1;
+            *snrfade = 0.0;
+            *statecontrol = CONTROL_STATE_ZERO;
+            *recordfade = *recfadeflag = 0;
+            break;
+        case CONTROL_STATE_RECORD_ON:
+            *playfadeflag = 3;
+            *recfadeflag = 5;
+            *statecontrol = CONTROL_STATE_ZERO;
+            *recordfade = *playfade = 0;
+            break;
+    }
+}
+
+// Helper function: Initialize performance variables
+void karma_initialize_perform_vars(t_karma *x, double *accuratehead, long *playhead, double *maxhead, 
+                                   t_bool *wrapflag, double *jumphead, double *pokesteps, double *snrfade, 
+                                   double *globalramp, double *snrramp, switchramp_type_t *snrtype, interp_type_t *interp, 
+                                   double *speedfloat, double *o1prev, double *o1dif, double *writeval1)
+{
+    *o1prev          = x->o1prev;
+    *o1dif           = x->o1dif;
+    *writeval1       = x->writeval1;
+    *accuratehead    = x->playhead;
+    *playhead        = trunc(*accuratehead);
+    *maxhead         = x->maxhead;
+    *wrapflag        = x->wrapflag;
+    *jumphead        = x->jumphead;
+    *pokesteps       = x->pokesteps;
+    *snrfade         = x->snrfade;
+    *globalramp      = (double)x->globalramp;
+    *snrramp         = (double)x->snrramp;
+    *snrtype         = x->snrtype;
+    *interp          = x->interpflag;
+    *speedfloat      = x->speedfloat;
+}
+
+// Helper function: Handle direction changes
+void karma_handle_direction_change(char directionprev, char direction, t_bool record, double globalramp, 
+                                   long frames, float *b, long pchans, long recordhead, 
+                                   long *recordfade, char *recfadeflag, double *snrfade)
+{
+    if (directionprev != direction) {
+        if (record && globalramp) {
+            ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
+            *recordfade = *recfadeflag = 0;
+            // recordhead = -1; // Note: this should be handled by caller
+        }
+        *snrfade = 0.0;
+    }
+}
+
+// Helper function: Handle record on/off transitions
+void karma_handle_record_toggle(t_bool record, t_bool recordprev, double globalramp, long frames, float *b, 
+                                long pchans, long *recordhead, long *recordfade, char *recfadeflag, 
+                                double accuratehead, char direction, double speed, double *snrfade, t_bool *dirt)
+{
+    if ((record - recordprev) < 0) {           // samp @record-off
+        if (globalramp)
+            ease_bufoff(frames - 1, b, pchans, *recordhead, direction, globalramp);
+        *recordhead = -1;
+        *dirt = 1;
+    } else if ((record - recordprev) > 0) {    // samp @record-on
+        *recordfade = *recfadeflag = 0;
+        if (speed < 1.0)
+            *snrfade = 0.0;
+        if (globalramp)
+            ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
+    }
+}
 
 // mono perform
 
@@ -1647,10 +1459,13 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
     double speed, speedfloat, osamp1, overdubamp, overdubprev, ovdbdif, selstart, selection;
     double o1prev, o1dif, frac, snrfade, globalramp, snrramp, writeval1, coeff1, recin1;
     t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
-    char direction, directionprev, directionorig, statecontrol, playfadeflag, recfadeflag, recendmark;
-    t_ptr_int playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
-    t_ptr_int frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
-    t_ptr_int initiallow, initialhigh;
+    char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
+    long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans;
+    control_state_t statecontrol;
+    switchramp_type_t snrtype;
+    interp_type_t interp;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long initiallow, initialhigh;
     
     t_buffer_obj *buf = buffer_ref_getobject(x->buf);
     float *b = buffer_locksamples(buf);
@@ -1667,10 +1482,6 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
         x->buf_modified  = false;
     }
     
-    o1prev          = x->o1prev;
-    o1dif           = x->o1dif;
-    writeval1       = x->writeval1;
-
     go              = x->go;
     statecontrol    = x->statecontrol;
     playfadeflag    = x->playfadeflag;
@@ -1700,85 +1511,15 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
     ovdbdif         = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
     recordfade      = x->recordfade;
     playfade        = x->playfade;
-    accuratehead    = x->playhead;
-    playhead        = trunc(accuratehead);
-    maxhead         = x->maxhead;
-    wrapflag        = x->wrapflag;
-    jumphead        = x->jumphead;
-    pokesteps       = x->pokesteps;
-    snrfade         = x->snrfade;
-    globalramp      = (double)x->globalramp;
-    snrramp         = (double)x->snrramp;
-    snrtype         = x->snrtype;
-    interp          = x->interpflag;
-    speedfloat      = x->speedfloat;
     
-    switch (statecontrol)   // "all-in-one 'switch' statement to catch and handle all(most) messages" - raja
-    {
-        case 0:             // case 0: zero
-            break;
-        case 1:             // case 1: record initial loop
-            record = go = triginit = loopdetermine = 1;
-            recordfade = recfadeflag = playfade = playfadeflag = statecontrol = 0;
-            break;
-        case 2:             // case 2: record alternateflag (wtf is 'alternateflag' ('rectoo') ?!)  // in to OVERDUB ??
-            recendmark = 3;
-            record = recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 3:             // case 3: record off regular
-            recfadeflag = 1;
-            playfadeflag = 3;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 4:             // case 4: play alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // out of OVERDUB ??
-            recendmark = 2;
-            recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 5:             // case 5: play on regular
-            triginit = 1;   // ?!?!
-            statecontrol = 0;
-            break;
-        case 6:             // case 6: stop alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // after OVERDUB ??
-            playfade = recordfade = 0;
-            recendmark = playfadeflag = recfadeflag = 1;
-            statecontrol = 0;
-            break;
-        case 7:             // case 7: stop regular
-            if (record) {
-                recordfade = 0;
-                recfadeflag = 1;
-            }
-            playfade = 0;
-            playfadeflag = 1;
-            statecontrol = 0;
-            break;
-        case 8:             // case 8: jump
-            if (record) {
-                recordfade = 0;
-                recfadeflag = 2;
-            }
-            playfade = 0;
-            playfadeflag = 2;
-            statecontrol = 0;
-            break;
-        case 9:             // case 9: append
-            playfadeflag = 4;   // !! modified in perform loop switch case(s) for playing behind append
-            playfade = 0;
-            statecontrol = 0;
-            break;
-        case 10:            // case 10: special case append (what is special about it ?!)   // in to RECORD / OVERDUB ??
-            record = loopdetermine = alternateflag = 1;
-            snrfade = 0.0;
-            recordfade = recfadeflag = statecontrol = 0;
-            break;
-        case 11:            // case 11: record on regular (when ?! not looped ?!)
-            playfadeflag = 3;
-            recfadeflag = 5;
-            recordfade = playfade = statecontrol = 0;
-            break;          // !!
-    }
+    // Initialize performance variables using helper function
+    karma_initialize_perform_vars(x, &accuratehead, &playhead, &maxhead, &wrapflag, &jumphead, &pokesteps, 
+                                  &snrfade, &globalramp, &snrramp, &snrtype, &interp, &speedfloat, 
+                                  &o1prev, &o1dif, &writeval1);
+    
+    // Process state control using helper function
+    karma_process_state_control(x, &statecontrol, &record, &go, &triginit, &loopdetermine, 
+                                &recordfade, &recfadeflag, &playfade, &playfadeflag, &recendmark);
 
     //  raja notes:
     // 'snrfade = 0.0' triggers switch&ramp (declick play)
@@ -1790,29 +1531,16 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
         speed = speedinlet ? *in2++ : speedfloat;   // signal of float ?
         direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
 
-        // declick for change of 'dir'ection
-        if (directionprev != direction) {
-            if (record && globalramp) {
-                ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                recordfade = recfadeflag = 0;
-                recordhead = -1;
-            }
-            snrfade = 0.0;
+        // Handle direction changes using helper function
+        karma_handle_direction_change(directionprev, direction, record, globalramp, frames, b, pchans, 
+                                      recordhead, &recordfade, &recfadeflag, &snrfade);
+        if (directionprev != direction && record && globalramp) {
+            recordhead = -1;  // Special case handling for recordhead
         }
         
-        if ((record - recordprev) < 0) {           // samp @record-off
-            if (globalramp)
-                ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-            //initialhigh = loopdetermine ? recordhead : initialhigh;
-            recordhead = -1;
-            dirt = 1;
-        } else if ((record - recordprev) > 0) {    // samp @record-on
-            recordfade = recfadeflag = 0;
-            if (speed < 1.0)
-                snrfade = 0.0;
-            if (globalramp)
-                ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-        }
+        // Handle record on/off transitions using helper function
+        karma_handle_record_toggle(record, recordprev, globalramp, frames, b, pchans, &recordhead, 
+                                   &recordfade, &recfadeflag, accuratehead, direction, speed, &snrfade, &dirt);
         recordprev = record;
         
         if (!loopdetermine)
@@ -2155,71 +1883,10 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 else
                     recin1 += ((double)b[playhead * pchans]) * overdubamp;
                 
-                if (recordhead < 0) {
-                    recordhead = playhead;
-                    pokesteps = 0.0;
-                    // NOTUSED: recplaydif = writeval1 = 0.0;
-                }
-                
-                if (recordhead == playhead) {
-                    writeval1 += recin1;
-                    pokesteps += 1.0;
-                } else {
-                    if (pokesteps > 1.0) {              // linear-averaging for speed < 1x
-                        writeval1 = writeval1 / pokesteps;
-                        pokesteps = 1.0;
-                    }
-                    b[recordhead * pchans] = writeval1;
-                    recplaydif = (double)(playhead - recordhead);
-                    if (recplaydif > 0) {               // linear-interpolation for speed > 1x
-                        coeff1 = (recin1 - writeval1) / recplaydif;
-                        for (i = recordhead + 1; i < playhead; i++) {
-                            writeval1 += coeff1;
-                            b[i * pchans] = writeval1;
-                        }
-                    } else {
-                        coeff1 = (recin1 - writeval1) / recplaydif;
-                        for (i = recordhead - 1; i > playhead; i--) {
-                            writeval1 -= coeff1;
-                            b[i * pchans] = writeval1;
-                        }
-                    }
-                    writeval1 = recin1;
-                }
-                recordhead = playhead;
-                dirt = 1;
+                karma_handle_ipoke_recording(b, pchans, playhead, &recordhead, recin1, overdubamp, globalramp, recordfade, recfadeflag, &pokesteps, &writeval1, &dirt);
             }                                           // ~ipoke end
             
-            if (globalramp)                             // realtime ramps for record on/off
-            {
-                if(recordfade < globalramp)
-                {
-                    recordfade++;
-                    if ((recfadeflag) && (recordfade >= globalramp))
-                    {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                            recordfade = 0;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-            } else {
-                if (recfadeflag) {
-                    if (recfadeflag == 2) {
-                        triginit = jumpflag = 1;
-                    } else if (recfadeflag == 5) {
-                        record = 1;
-                    } else {
-                        record = 0;
-                    }
-                    recfadeflag = 0;
-                }
-            }
+            karma_handle_recording_fade(globalramp, &recordfade, &recfadeflag, &record, &triginit, &jumpflag);
             directionprev = direction;
             
         } else {                                        // initial loop creation
@@ -2229,24 +1896,8 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
             {
                 if (triginit)
                 {
-                    if (jumpflag)                       // jump
-                    {
-                        if (directionorig >= 0) {
-                            accuratehead = jumphead * maxhead;      // !! maxhead !!
-                        } else {
-                            accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                        }
-                        jumpflag = 0;
-                        snrfade = 0.0;
-                        if (record) {
-                            if (globalramp) {
-                                ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                recordfade = 0;
-                            }
-                            recfadeflag = 0;
-                            recordhead = -1;
-                        }
-                        triginit = 0;
+                    if (jumpflag) {
+                        karma_handle_jump_logic(jumphead, maxhead, frames, directionorig, &accuratehead, &jumpflag, &snrfade, record, b, pchans, &recordhead, direction, globalramp, &recordfade, &recfadeflag, &triginit);
                     } else if (append) {                // append
                         snrfade = 0.0;
                         triginit = 0;
@@ -2701,6122 +2352,277 @@ zero:
     return;
 }
 
-// stereo perform
+// ============================== Helper Functions ==============================
 
-void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr)
+// Helper functions for karma_buf_change_internal refactoring
+
+t_bool karma_validate_buffer(t_karma *x, t_symbol *bufname)
 {
-    long    syncoutlet = x->syncoutlet;
+    t_buffer_obj *buf_temp;
     
-    double *in1 = ins[0];       // L
-    double *in2 = ins[1];       // R
-    double *in3 = ins[2];                       // speed (if signal connected)
-    
-    double *out1  = outs[0];    // L
-    double *out2  = outs[1];    // R
-    double *outPh = syncoutlet ? outs[2] : 0;   // sync (if @syncout 1)
-    
-    long    n = vcount;
-    short   speedinlet  = x->speedconnect;
-    
-    double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
-    double speed, speedfloat, osamp1, osamp2, overdubamp, overdubprev, ovdbdif, selstart, selection;
-    double o1prev, o2prev, o1dif, o2dif, frac, snrfade, globalramp, snrramp, writeval1, writeval2, coeff1, coeff2, recin1, recin2;
-    t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
-    char direction, directionprev, directionorig, statecontrol, playfadeflag, recfadeflag, recendmark;
-    t_ptr_int playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
-    t_ptr_int frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
-    t_ptr_int initiallow, initialhigh;
-
-    t_buffer_obj *buf = buffer_ref_getobject(x->buf);
-    float *b = buffer_locksamples(buf);
-    
-    record          = x->record;
-    recordprev      = x->recordprev;
-    dirt            = 0;
-    if (!b || x->k_ob.z_disabled)
-        goto zero;
-    if (record || recordprev)
-        dirt        = 1;
-    if (x->buf_modified) {
-        karma_buf_modify(x, buf);
-        x->buf_modified  = false;
+    if (bufname == ps_nothing) {
+        object_error((t_object *)x, "requires a valid buffer~ declaration (none found)");
+        return false;
     }
     
-    o1prev          = x->o1prev;
-    o2prev          = x->o2prev;
-    o1dif           = x->o1dif;
-    o2dif           = x->o2dif;
-    writeval1       = x->writeval1;
-    writeval2       = x->writeval2;
-
-    go              = x->go;
-    statecontrol    = x->statecontrol;
-    playfadeflag    = x->playfadeflag;
-    recfadeflag     = x->recfadeflag;
-    recordhead      = x->recordhead;
-    alternateflag   = x->alternateflag;
-    pchans          = x->bchans;
-    srscale         = x->srscale;
-    frames          = x->bframes;
-    triginit        = x->triginit;
-    jumpflag        = x->jumpflag;
-    append          = x->append;
-    directionorig   = x->directionorig;
-    directionprev   = x->directionprev;
-    minloop         = x->minloop;
-    maxloop         = x->maxloop;
-    initiallow      = x->initiallow;
-    initialhigh     = x->initialhigh;
-    selection       = x->selection;
-    loopdetermine   = x->loopdetermine;
-    startloop       = x->startloop;
-    selstart        = x->selstart;
-    endloop         = x->endloop;
-    recendmark      = x->recendmark;
-    overdubamp      = x->overdubprev;
-    overdubprev     = x->overdubamp;
-    ovdbdif         = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
-    recordfade      = x->recordfade;
-    playfade        = x->playfade;
-    accuratehead    = x->playhead;
-    playhead        = trunc(accuratehead);
-    maxhead         = x->maxhead;
-    wrapflag        = x->wrapflag;
-    jumphead        = x->jumphead;
-    pokesteps       = x->pokesteps;
-    snrfade         = x->snrfade;
-    globalramp      = (double)x->globalramp;
-    snrramp         = (double)x->snrramp;
-    snrtype         = x->snrtype;
-    interp          = x->interpflag;
-    speedfloat      = x->speedfloat;
+    x->bufname_temp = bufname;
     
-    switch (statecontrol)   // "all-in-one 'switch' statement to catch and handle all(most) messages" - raja
-    {
-        case 0:             // case 0: zero
-            break;
-        case 1:             // case 1: record initial loop
-            record = go = triginit = loopdetermine = 1;
-            recordfade = recfadeflag = playfade = playfadeflag = statecontrol = 0;
-            break;
-        case 2:             // case 2: record alternateflag (wtf is 'alternateflag' ('rectoo') ?!)  // in to OVERDUB ??
-            recendmark = 3;
-            record = recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 3:             // case 3: record off regular
-            recfadeflag = 1;
-            playfadeflag = 3;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 4:             // case 4: play alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // out of OVERDUB ??
-            recendmark = 2;
-            recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 5:             // case 5: play on regular
-            triginit = 1;
-            statecontrol = 0;
-            break;
-        case 6:             // case 6: stop alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // after OVERDUB ??
-            playfade = recordfade = 0;
-            recendmark = playfadeflag = recfadeflag = 1;
-            statecontrol = 0;
-            break;
-        case 7:             // case 7: stop regular
-            if (record) {
-                recordfade = 0;
-                recfadeflag = 1;
-            }
-            playfade = 0;
-            playfadeflag = 1;
-            statecontrol = 0;
-            break;
-        case 8:             // case 8: jump
-            if (record) {
-                recordfade = 0;
-                recfadeflag = 2;
-            }
-            playfade = 0;
-            playfadeflag = 2;
-            statecontrol = 0;
-            break;
-        case 9:             // case 9: append
-            playfadeflag = 4;   // !! modified in perform loop switch case(s) for playing behind append
-            playfade = 0;
-            statecontrol = 0;
-            break;
-        case 10:            // case 10: special case append (what is special about it ?!)   // in to RECORD / OVERDUB ??
-            record = loopdetermine = alternateflag = 1;
-            snrfade = 0.0;
-            recordfade = recfadeflag = statecontrol = 0;
-            break;
-        case 11:            // case 11: record on regular (when ?! not looped ?!)
-            playfadeflag = 3;
-            recfadeflag = 5;
-            recordfade = playfade = statecontrol = 0;
-            break;          // !!
+    if (!x->buf_temp) {
+        x->buf_temp = buffer_ref_new((t_object *)x, bufname);
+    } else {
+        buffer_ref_set(x->buf_temp, bufname);
     }
     
-    // raja notes:
-    // 'snrfade = 0.0' triggers switch&ramp (declick play)
-    // 'recordhead = -1' triggers ipoke-interp cuts and accompanies buf~ fades (declick record)
+    buf_temp = buffer_ref_getobject(x->buf_temp);
     
-    if (pchans > 1)
-    {
-
-        while (n--)
-        {
-            recin1 = *in1++;
-            recin2 = *in2++;
-            speed = speedinlet ? *in3++ : speedfloat;   // signal of float ?
-            direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
-            
-            // declick for change of 'dir'ection
-            if (directionprev != direction) {
-                if (record && globalramp) {
-                    ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                    recordfade = recfadeflag = 0;
-                    recordhead = -1;
-                }
-                snrfade = 0.0;
-            }
-            
-            if ((record - recordprev) < 0) {           // samp @record-off
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-                //initialhigh = loopdetermine ? recordhead : initialhigh;
-                recordhead = -1;
-                dirt = 1;
-            } else if ((record - recordprev) > 0) {    // samp @record-on
-                recordfade = recfadeflag = 0;
-                if (speed < 1.0)
-                    snrfade = 0.0;
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-            }
-            recordprev = record;
-            
-            if (!loopdetermine)
-            {
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (recendmark)  // calculate end of loop
-                        {
-                            if (directionorig >= 0)
-                            {
-                                maxloop = CLAMP(maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;
-                                accuratehead = startloop = minloop + (selstart * setloopsize);
-                                endloop = startloop + (selection * setloopsize);
-                                if (endloop > maxloop) {
-                                    endloop = endloop - (setloopsize + 1);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                if (direction < 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            } else {
-                                maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                                startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
-                                if (endloop > (frames - 1)) {
-                                    endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                accuratehead = endloop;
-                                if (direction > 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            }
-                            if (globalramp)
-                                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                            append = alternateflag = recendmark = 0;
-                        } else {    // jump / play (inside 'window')
-                            setloopsize = maxloop - minloop;
-                            if (jumpflag)
-                                accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                            else
-                                accuratehead = (direction < 0) ? endloop : startloop;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recordhead = -1;
-                                recfadeflag = 0;
-                            }
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {        // jump-based constraints (outside 'window')
-                        setloopsize = maxloop - minloop;
-                        speedsrscaled = speed * srscale;
-                        
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        
-                        if (jumpflag)
-                        {
-                            if (wrapflag) {
-                                if ((accuratehead < endloop) || (accuratehead > startloop))
-                                    jumpflag = 0;
-                            } else {
-                                if ((accuratehead < endloop) && (accuratehead > startloop))
-                                    jumpflag = 0;
-                            }
-                            if (directionorig >= 0)
-                            {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < 0.0) {
-                                    accuratehead = maxloop + accuratehead;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {
-                                if (accuratehead > (frames - 1))
-                                {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // regular 'window' / 'position' constraints
-                            if (wrapflag)
-                            {
-                                if ((accuratehead > endloop) && (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (directionorig >= 0) {
-                                    if (accuratehead > maxloop)
-                                    {
-                                        accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                    else if (accuratehead < 0.0)
-                                    {
-                                        accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                } else {    // reverse
-                                    if (accuratehead < ((frames - 1) - maxloop))
-                                    {
-                                        accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                        snrfade = 0.0;
-                                        if (record)
-                                        {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    } else if (accuratehead > (frames - 1)) {
-                                        accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                }
-                            } else {    // (not wrapflag)
-                                if ((accuratehead > endloop) || (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // interp ratio
-                    playhead = trunc(accuratehead);
-                    if (direction > 0) {
-                        frac = accuratehead - playhead;
-                    } else if (direction < 0) {
-                        frac = 1.0 - (accuratehead - playhead);
-                    } else {
-                        frac = 0.0;
-                    }                                                                                   // setloopsize  // ??
-                    interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
-                    
-                    if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                    } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                        if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                        } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                        } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                        }
-                    }
-                    
-                    if (globalramp)
-                    {                                                   // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                        if (snrfade < 1.0)
-                        {
-                            if (snrfade == 0.0) {
-                                o1dif = o1prev - osamp1;
-                                o2dif = o2prev - osamp2;
-                            }
-                            osamp1 += ease_switchramp(o1dif, snrfade, snrtype);  // ... easing-curv options (implemented by raja)
-                            osamp2 += ease_switchramp(o2dif, snrfade, snrtype);
-                            snrfade += 1 / snrramp;
-                        }                                               // "Switch and Ramp" end
-                        
-                        if (playfade < globalramp)
-                        {                                               // realtime ramps for play on/off
-                            osamp1 = ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
-                            osamp2 = ease_record(osamp2, (playfadeflag > 0), globalramp, playfade);
-                            playfade++;
-                            if (playfade >= globalramp)
-                            {
-                                switch (playfadeflag)
-                                {
-                                    case 0:
-                                        break;
-                                    case 1:
-                                        playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                        break;
-                                    case 2:
-                                        if (!record)
-                                            triginit = jumpflag = 1;
-//                                      break;                  // !! no break - pass 2 -> 3 !!
-                                    case 3:                     // jump // record off reg
-                                        playfadeflag = playfade = 0;
-                                        break;
-                                    case 4:                     // append
-                                        go = triginit = loopdetermine = 1;
-                                        // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                        snrfade = 0.0;
-                                        playfade = playfadeflag = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        switch (playfadeflag)
-                        {
-                            case 0:
-                                break;
-                            case 1:
-                                playfadeflag = go = 0;
-                                break;
-                            case 2:
-                                if (!record)
-                                    triginit = jumpflag = 1;
-//                              break;                                  // !! no break - pass 2 -> 3 !!
-                            case 3:                                     // jump     // record off reg
-                                playfadeflag = 0;
-                                break;
-                            case 4:                                     // append
-                                go = triginit = loopdetermine = 1;
-                                // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                snrfade = 0.0;
-                                playfade = playfadeflag = 0;
-                                break;
-                        }
-                    }
-                    
-                } else {
-                    osamp1 = 0.0;
-                    osamp2 = 0.0;
-                }
-                
-                o1prev = osamp1;
-                o2prev = osamp2;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                /*
-                 ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                 (modded to allow for 'window' and 'position' to change on the fly)
-                 raja's razor: simplest answer to everything was:
-                 recin1 = ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
-                 ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-                 ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
-                 */
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + (((double)b[(playhead * pchans) + 1]) * overdubamp), recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        recplaydif = (double)(playhead - recordhead);
-                        if (recplaydif > 0) {                     // linear-interpolation for speed > 1x
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            for (i = recordhead + 1; i < playhead; i++) {
-                                writeval1 += coeff1;
-                                writeval2 += coeff2;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                            }
-                        } else {
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            for (i = recordhead - 1; i > playhead; i--) {
-                                writeval1 -= coeff1;
-                                writeval2 -= coeff2;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                }                                           // ~ipoke end
-                
-                if (globalramp)                                   // realtime ramps for record on/off
-                {
-                    if(recordfade < globalramp)
-                    {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp))
-                        {
-                            if (recfadeflag == 2) {
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            } else {
-                                record = 0;
-                            }
-                            recfadeflag = 0;
-                        }
-                    }
-                } else {
-                    if (recfadeflag) {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-                directionprev = direction;
-                
-            } else {                                        // initial loop creation
-            // !! is 'loopdetermine' !!
-
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (jumpflag)                          // jump
-                        {
-                            if (directionorig >= 0) {
-                                accuratehead = jumphead * maxhead;
-                            } else {
-                                accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                            }
-                            jumpflag = 0;
-                            snrfade = 0.0;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            }
-                            triginit = 0;
-                        } else if (append) {                // append
-                            snrfade = 0.0;
-                            triginit = 0;
-                            if (record)
-                            {
-                                accuratehead = maxhead;
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                alternateflag = 1;
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            } else {
-                                goto apned;
-                            }
-                        } else {                            // trigger start of initial loop creation
-                            directionorig = direction;
-                            minloop = 0.0;
-                            maxloop = frames - 1;
-                            maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
-                            alternateflag = 1;
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {
-                    apned:
-                        speedsrscaled = speed * srscale;
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (maxloop / 1024)) ? ((maxloop / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        if (direction == directionorig)                    // buffer~ boundary constraints and registry of maximum distance traversed
-                        {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = 0.0;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = frames - 1;
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = frames - 1;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = 0.0;
-                            } else {                        // <- track max write position
-                                if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) )
-                                    maxhead = accuratehead;
-                            }
-                        } else if (direction < 0) {               // wraparounds for reversal while creating initial-loop
-                            if (accuratehead < 0.0)
-                            {
-                                accuratehead = maxhead + accuratehead;
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        } else if (direction >= 0) {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = maxhead + (accuratehead - (frames - 1));
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        }
-                    //initialhigh = append ? initialhigh : maxhead;   // !! !!
-                    }
-                    
-                    playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
-                    
-                    if (globalramp)
-                    {
-                        if (playfade < globalramp)                    // realtime ramps for play on/off
-                        {
-                            playfade++;
-                            if (playfadeflag)
-                            {
-                                if (playfade >= globalramp)
-                                {
-                                    if (playfadeflag == 2) {
-                                        recendmark = 4;
-                                        go = 1;
-                                    }
-                                    playfadeflag = 0;
-                                    switch (recendmark) {
-                                        case 0:
-                                        case 1:
-                                            go = 0;
-                                            break;
-                                        case 2:
-                                        case 3:
-                                            go = 1;
-                                            playfade = 0;
-                                            break;
-                                        case 4:
-                                            recendmark = 0;
-                                            break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if (playfadeflag)
-                        {
-                            if (playfadeflag == 2) {
-                                recendmark = 4;
-                                go = 1;
-                            }
-                            playfadeflag = 0;
-                            switch (recendmark) {
-                                case 0:
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                case 3:
-                                    go = 1;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                }
-                
-                osamp1 = 0.0;
-                osamp2 = 0.0;
-                o1prev = osamp1;
-                o2prev = osamp2;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                // (modded to assume maximum distance recorded into buffer~ as the total length)
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + ((double)b[(playhead * pchans) + 1]) * overdubamp, recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        recplaydif = (double)(playhead - recordhead);        // linear-interp for speed > 1x
-                        if (direction != directionorig)
-                        {
-                            if (directionorig >= 0)
-                            {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (maxhead * 0.5))
-                                    {
-                                        recplaydif -= maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i >= 0; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = maxhead; i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (maxhead * 0.5))
-                                    {
-                                        recplaydif += maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < (maxhead + 1); i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = 0; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif -= ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i >= maxhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = (frames - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif += ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < frames; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = maxhead; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (recplaydif > 0)
-                            {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                for (i = (recordhead + 1); i < playhead; i++) {
-                                    writeval1 += coeff1;
-                                    writeval2 += coeff2;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                }
-                            } else {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                for (i = (recordhead - 1); i > playhead; i--) {
-                                    writeval1 -= coeff1;
-                                    writeval2 -= coeff2;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                }
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                    }                                       // ~ipoke end
-                    if (globalramp)                               // realtime ramps for record on/off
-                    {
-                        if (recordfade < globalramp)
-                        {
-                            recordfade++;
-                            if ((recfadeflag) && (recordfade >= globalramp))
-                            {
-                                if (recfadeflag == 2) {
-                                    recendmark = 4;
-                                    triginit = jumpflag = 1;
-                                    recordfade = 0;
-                                } else if (recfadeflag == 5) {
-                                    record = 1;
-                                }
-                                recfadeflag = 0;
-                                switch (recendmark)
-                                {
-                                    case 0:
-                                        record = 0;
-                                        break;
-                                    case 1:
-                                        if (directionorig < 0) {
-                                            maxloop = (frames - 1) - maxhead;
-                                        } else {
-                                            maxloop = maxhead;
-                                        }
-//                                      break;                      // !! no break - pass 1 -> 2 !!
-                                    case 2:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = loopdetermine = 0;
-                                        triginit = 1;
-                                        break;
-                                    case 3:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = triginit = 1;
-                                        recordfade = loopdetermine = 0;
-                                        break;
-                                    case 4:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        recendmark = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        if (recfadeflag)
-                        {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
-                            recfadeflag = 0;
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                      // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }                           // ~ipoke end
-                    recordhead = playhead;
-                    dirt = 1;
-                    //initialhigh = maxloop;
-                }
-                directionprev = direction;
-            }
-            if (ovdbdif != 0.0)
-                overdubamp = overdubamp + ovdbdif;
-
-            initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
-        }
-
-    }
-    else
-    {
-
-        while (n--)
-        {
-            recin1 = *in1++;
-            // NOTUSED: recin2 = *in2++;
-            speed = speedinlet ? *in3++ : speedfloat;   // signal of float ?
-            direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
-            
-            // declick for change of 'dir'ection
-            if (directionprev != direction) {
-                if (record && globalramp) {
-                    ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                    recordfade = recfadeflag = 0;
-                    recordhead = -1;
-                }
-                snrfade = 0.0;
-            }   // !! !!
-            
-            if ((record - recordprev) < 0) {           // samp @record-off
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-                //initialhigh = loopdetermine ? recordhead : initialhigh;
-                recordhead = -1;
-                dirt = 1;
-            } else if ((record - recordprev) > 0) {    // samp @record-on
-                recordfade = recfadeflag = 0;
-                if (speed < 1.0)
-                    snrfade = 0.0;
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-            }
-            recordprev = record;
-            
-            if (!loopdetermine)
-            {
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (recendmark)  // calculate end of loop
-                        {
-                            if (directionorig >= 0)
-                            {
-                                maxloop = CLAMP(maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;
-                                accuratehead = startloop = minloop + (selstart * setloopsize);
-                                endloop = startloop + (selection * setloopsize);
-                                if (endloop > maxloop) {
-                                    endloop = endloop - (setloopsize + 1);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                if (direction < 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            } else {
-                                maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                                startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
-                                if (endloop > (frames - 1)) {
-                                    endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                accuratehead = endloop;
-                                if (direction > 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            }
-                            if (globalramp)
-                                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                            append = alternateflag = recendmark = 0;
-                        } else {    // jump / play (inside 'window')
-                            setloopsize = maxloop - minloop;
-                            if (jumpflag)
-                                accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                            else
-                                accuratehead = (direction < 0) ? endloop : startloop;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recordhead = -1;
-                                recfadeflag = 0;
-                            }
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {        // jump-based constraints (outside 'window')
-                        setloopsize = maxloop - minloop;
-                        speedsrscaled = speed * srscale;
-                        
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        
-                        if (jumpflag)
-                        {
-                            if (wrapflag) {
-                                if ((accuratehead < endloop) || (accuratehead > startloop))
-                                    jumpflag = 0;
-                            } else {
-                                if ((accuratehead < endloop) && (accuratehead > startloop))
-                                    jumpflag = 0;
-                            }
-                            if (directionorig >= 0)
-                            {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < 0.0) {
-                                    accuratehead = maxloop + accuratehead;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {
-                                if (accuratehead > (frames - 1))
-                                {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // regular 'window' / 'position' constraints
-                            if (wrapflag)
-                            {
-                                if ((accuratehead > endloop) && (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (directionorig >= 0) {
-                                    if (accuratehead > maxloop)
-                                    {
-                                        accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                    else if (accuratehead < 0.0)
-                                    {
-                                        accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                } else {    // reverse
-                                    if (accuratehead < ((frames - 1) - maxloop))
-                                    {
-                                        accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                        snrfade = 0.0;
-                                        if (record)
-                                        {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    } else if (accuratehead > (frames - 1)) {
-                                        accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                }
-                            } else {    // (not wrapflag)
-                                if ((accuratehead > endloop) || (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // interp ratio
-                    playhead = trunc(accuratehead);
-                    if (direction > 0) {
-                        frac = accuratehead - playhead;
-                    } else if (direction < 0) {
-                        frac = 1.0 - (accuratehead - playhead);
-                    } else {
-                        frac = 0.0;
-                    }                                                                                   // setloopsize  // ??
-                    interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
-                    
-                    if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                    } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                        if (interp == 1)
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                        else if (interp == 2)
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                        else
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                    }
-                    
-                    if (globalramp)
-                    {                                                   // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                        if (snrfade < 1.0)
-                        {
-                            if (snrfade == 0.0) {
-                                o1dif = o1prev - osamp1;
-                            }
-                            osamp1 += ease_switchramp(o1dif, snrfade, snrtype);  // <- easing-curv options (implemented by raja)
-                            snrfade += 1 / snrramp;
-                        }                                               // "Switch and Ramp" end
-                        
-                        if (playfade < globalramp)
-                        {                                               // realtime ramps for play on/off
-                            osamp1 = ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
-                            playfade++;
-                            if (playfade >= globalramp)
-                            {
-                                switch (playfadeflag)
-                                {
-                                    case 0:
-                                        break;
-                                    case 1:
-                                        playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                        break;
-                                    case 2:
-                                        if (!record)
-                                            triginit = jumpflag = 1;
-//                                      break;                  // !! no break - pass 2 -> 3 !!
-                                    case 3:                     // jump // record off reg
-                                        playfadeflag = playfade = 0;
-                                        break;
-                                    case 4:                     // append
-                                        go = triginit = loopdetermine = 1;
-                                        // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                        snrfade = 0.0;
-                                        playfade = playfadeflag = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        switch (playfadeflag)
-                        {
-                            case 0:
-                                break;
-                            case 1:
-                                playfadeflag = go = 0;
-                                break;
-                            case 2:
-                                if (!record)
-                                    triginit = jumpflag = 1;
-//                              break;                                  // !! no break - pass 2 -> 3 !!
-                            case 3:                                     // jump     // record off reg
-                                playfadeflag = 0;
-                                break;
-                            case 4:                                     // append
-                                go = triginit = loopdetermine = 1;
-                                // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                snrfade = 0.0;
-                                playfade = playfadeflag = 0;
-                                break;
-                        }
-                    }
-                    
-                } else {
-                    osamp1 = 0.0;
-                }
-                
-                o1prev = osamp1;
-                *out1++ = osamp1;
-                osamp2 = 0.0;
-                o2prev = osamp2;
-                *out2++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                /*
-                 ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                 (modded to allow for 'window' and 'position' to change on the fly)
-                 raja's razor: simplest answer to everything was:
-                 recin1 = ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
-                 ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-                 ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
-                 */
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0))
-                        recin1 = ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
-                    else
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                    
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        recplaydif = (double)(playhead - recordhead);
-                        if (recplaydif > 0) {                     // linear-interpolation for speed > 1x
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            for (i = recordhead + 1; i < playhead; i++) {
-                                writeval1 += coeff1;
-                                b[i * pchans] = writeval1;
-                            }
-                        } else {
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            for (i = recordhead - 1; i > playhead; i--) {
-                                writeval1 -= coeff1;
-                                b[i * pchans] = writeval1;
-                            }
-                        }
-                        writeval1 = recin1;
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                }                                           // ~ipoke end
-                
-                if (globalramp)                                   // realtime ramps for record on/off
-                {
-                    if(recordfade < globalramp)
-                    {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp))
-                        {
-                            if (recfadeflag == 2) {
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            } else {
-                                record = 0;
-                            }
-                            recfadeflag = 0;
-                        }
-                    }
-                } else {
-                    if (recfadeflag) {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-                directionprev = direction;
-                
-            } else {                                        // initial loop creation
-            // !! is 'loopdetermine' !!
-
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (jumpflag)                          // jump
-                        {
-                            if (directionorig >= 0) {
-                                accuratehead = jumphead * maxhead;
-                            } else {
-                                accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                            }
-                            jumpflag = 0;
-                            snrfade = 0.0;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            }
-                            triginit = 0;
-                        } else if (append) {                // append
-                            snrfade = 0.0;
-                            triginit = 0;
-                            if (record)
-                            {
-                                accuratehead = maxhead;
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                alternateflag = 1;
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            } else {
-                                goto apnde;
-                            }
-                        } else {                            // trigger start of initial loop creation
-                            directionorig = direction;
-                            minloop = 0.0;
-                            maxloop = frames - 1;
-                            maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
-                            alternateflag = 1;
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {
-apnde:
-                        speedsrscaled = speed * srscale;
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (maxloop / 1024)) ? ((maxloop / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        if (direction == directionorig)                    // buffer~ boundary constraints and registry of maximum distance traversed
-                        {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = 0.0;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = frames - 1;
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = frames - 1;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = 0.0;
-                            } else {                        // <- track max write position
-                                if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) )
-                                    maxhead = accuratehead;
-                            }
-                        } else if (direction < 0) {               // wraparounds for reversal while creating initial-loop
-                            if (accuratehead < 0.0)
-                            {
-                                accuratehead = maxhead + accuratehead;
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        } else if (direction >= 0) {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = maxhead + (accuratehead - (frames - 1));
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        }
-                    //initialhigh = append ? initialhigh : maxhead;   // !! !!
-                    }
-                    
-                    playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
-                    
-                    if (globalramp)
-                    {
-                        if (playfade < globalramp)                    // realtime ramps for play on/off
-                        {
-                            playfade++;
-                            if (playfadeflag)
-                            {
-                                if (playfade >= globalramp)
-                                {
-                                    if (playfadeflag == 2) {
-                                        recendmark = 4;
-                                        go = 1;
-                                    }
-                                    playfadeflag = 0;
-                                    switch (recendmark) {
-                                        case 0:
-                                        case 1:
-                                            go = 0;
-                                            break;
-                                        case 2:
-                                        case 3:
-                                            go = 1;
-                                            playfade = 0;
-                                            break;
-                                        case 4:
-                                            recendmark = 0;
-                                            break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if (playfadeflag)
-                        {
-                            if (playfadeflag == 2) {
-                                recendmark = 4;
-                                go = 1;
-                            }
-                            playfadeflag = 0;
-                            switch (recendmark) {
-                                case 0:
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                case 3:
-                                    go = 1;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                }
-                
-                osamp1 = 0.0;
-                o1prev = osamp1;
-                *out1++ = osamp1;
-                osamp2 = 0.0;
-                o2prev = osamp2;
-                *out2++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                // (modded to assume maximum distance recorded into buffer~ as the total length)
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0))
-                        recin1 = ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
-                    else
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                    
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        recplaydif = (double)(playhead - recordhead);        // linear-interp for speed > 1x
-                        if (direction != directionorig)
-                        {
-                            if (directionorig >= 0)
-                            {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (maxhead * 0.5))
-                                    {
-                                        recplaydif -= maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i >= 0; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = maxhead; i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (maxhead * 0.5))
-                                    {
-                                        recplaydif += maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < (maxhead + 1); i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = 0; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif -= ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i >= maxhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = (frames - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif += ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < frames; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = maxhead; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (recplaydif > 0)
-                            {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                for (i = (recordhead + 1); i < playhead; i++) {
-                                    writeval1 += coeff1;
-                                    b[i * pchans] = writeval1;
-                                }
-                            } else {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                for (i = (recordhead - 1); i > playhead; i--) {
-                                    writeval1 -= coeff1;
-                                    b[i * pchans] = writeval1;
-                                }
-                            }
-                        }
-                        writeval1 = recin1;
-                    }                                       // ~ipoke end
-                    if (globalramp)                               // realtime ramps for record on/off
-                    {
-                        if (recordfade < globalramp)
-                        {
-                            recordfade++;
-                            if ((recfadeflag) && (recordfade >= globalramp))
-                            {
-                                if (recfadeflag == 2) {
-                                    recendmark = 4;
-                                    triginit = jumpflag = 1;
-                                    recordfade = 0;
-                                } else if (recfadeflag == 5) {
-                                    record = 1;
-                                }
-                                recfadeflag = 0;
-                                switch (recendmark)
-                                {
-                                    case 0:
-                                        record = 0;
-                                        break;
-                                    case 1:
-                                        if (directionorig < 0) {
-                                            maxloop = (frames - 1) - maxhead;
-                                        } else {
-                                            maxloop = maxhead;
-                                        }
-//                                      break;                      // !! no break - pass 1 -> 2 !!
-                                    case 2:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = loopdetermine = 0;
-                                        triginit = 1;
-                                        break;
-                                    case 3:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = triginit = 1;
-                                        recordfade = loopdetermine = 0;
-                                        break;
-                                    case 4:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        recendmark = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        if (recfadeflag)
-                        {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
-                            recfadeflag = 0;
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                      // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                    //initialhigh = maxloop;
-                }
-                directionprev = direction;
-            }
-            if (ovdbdif != 0.0)
-                overdubamp = overdubamp + ovdbdif;
-
-            initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
-        }
-    
+    if (buf_temp == NULL) {
+        object_warn((t_object *)x, "cannot find any buffer~ named %s, ignoring", bufname->s_name);
+        x->buf_temp = 0;
+        object_free(x->buf_temp);
+        return false;
     }
     
-    if (dirt) {                 // notify other buf-related objs of write
-        buffer_setdirty(buf);
-    }
-    buffer_unlocksamples(buf);
+    x->buf_temp = 0;
+    object_free(x->buf_temp);
     
-    if (x->clockgo) {                           // list-outlet stuff
-        clock_delay(x->tclock, 0);              // why ??
-        x->clockgo  = 0;
-    } else if ((!go) || (x->reportlist <= 0)) { // why '!go' ??
-        clock_unset(x->tclock);
-        x->clockgo  = 1;
-    }
-
-    x->o1prev           = o1prev;
-    x->o2prev           = o2prev;
-    x->o1dif            = o1dif;
-    x->o2dif            = o2dif;
-    x->writeval1        = writeval1;
-    x->writeval2        = writeval2;
-    
-    x->maxhead          = maxhead;
-    x->pokesteps        = pokesteps;
-    x->wrapflag         = wrapflag;
-    x->snrfade          = snrfade;
-    x->playhead         = accuratehead;
-    x->directionorig    = directionorig;
-    x->directionprev    = directionprev;
-    x->recordhead       = recordhead;
-    x->alternateflag    = alternateflag;
-    x->recordfade       = recordfade;
-    x->triginit         = triginit;
-    x->jumpflag         = jumpflag;
-    x->go               = go;
-    x->record           = record;
-    x->recordprev       = recordprev;
-    x->statecontrol     = statecontrol;
-    x->playfadeflag     = playfadeflag;
-    x->recfadeflag      = recfadeflag;
-    x->playfade         = playfade;
-    x->maxloop          = maxloop;
-    x->minloop          = minloop;
-    x->initiallow       = initiallow;
-    x->initialhigh      = initialhigh;
-    x->loopdetermine    = loopdetermine;
-    x->startloop        = startloop;
-    x->endloop          = endloop;
-    x->overdubprev      = overdubamp;
-    x->recendmark       = recendmark;
-    x->append           = append;
-    
-    return;
-
-zero:
-    while (n--) {
-        *out1++  = 0.0;
-        *out2++  = 0.0;
-        if (syncoutlet)
-            *outPh++ = 0.0;
+    // Set up the main buffer reference
+    x->bufname = bufname;
+    if (!x->buf) {
+        x->buf = buffer_ref_new((t_object *)x, bufname);
+    } else {
+        buffer_ref_set(x->buf, bufname);
     }
     
-    return;
+    return true;
 }
 
-// quad perform
-
-void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr)
+void karma_parse_loop_points_sym(t_symbol *loop_points_sym, long *loop_points_flag)
 {
-    long    syncoutlet = x->syncoutlet;
-    
-    double *in1 = ins[0];   // channel 1
-    double *in2 = ins[1];   // channel 2
-    double *in3 = ins[2];   // channel 3
-    double *in4 = ins[3];   // channel 4
-    double *in5 = ins[4];                       // speed (if signal connected)
-    
-    double *out1  = outs[0];// channel 1
-    double *out2  = outs[1];// channel 2
-    double *out3  = outs[2];// channel 3
-    double *out4  = outs[3];// channel 4
-    double *outPh = syncoutlet ? outs[4] : 0;   // sync (if @syncout 1)
-    
-    long    n = vcount;
-    short   speedinlet  = x->speedconnect;
-    
-    double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
-    double speed, speedfloat, osamp1, osamp2, osamp3, osamp4, overdubamp, overdubprev, ovdbdif, selstart, selection;
-    double o1prev, o2prev, o1dif, o2dif, o3prev, o4prev, o3dif, o4dif, frac, snrfade, globalramp, snrramp;
-    double writeval1, writeval2, writeval3, writeval4, coeff1, coeff2, coeff3, coeff4, recin1, recin2, recin3, recin4;
-    t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
-    char direction, directionprev, directionorig, statecontrol, playfadeflag, recfadeflag, recendmark;
-    t_ptr_int playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans, snrtype, interp;
-    t_ptr_int frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
-    t_ptr_int initiallow, initialhigh;
-
-    t_buffer_obj *buf = buffer_ref_getobject(x->buf);
-    float *b = buffer_locksamples(buf);
-    
-    record          = x->record;
-    recordprev      = x->recordprev;
-    dirt            = 0;
-    if (!b || x->k_ob.z_disabled)
-        goto zero;
-    if (record || recordprev)
-        dirt        = 1;
-    if (x->buf_modified) {
-        karma_buf_modify(x, buf);
-        x->buf_modified  = false;
+    if (loop_points_sym == ps_dummy) {
+        *loop_points_flag = 2;
+    } else if ((loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE")) || (loop_points_sym == gensym("ph"))) {
+        *loop_points_flag = 0;
+    } else if ((loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES")) || (loop_points_sym == gensym("samps"))) {
+        *loop_points_flag = 1;
+    } else if ((loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS")) || (loop_points_sym == gensym("ms"))) {
+        *loop_points_flag = 2;
+    } else {
+        *loop_points_flag = 2; // default to milliseconds
     }
-
-    o1prev          = x->o1prev;
-    o2prev          = x->o2prev;
-    o3prev          = x->o3prev;
-    o4prev          = x->o4prev;
-    o1dif           = x->o1dif;
-    o2dif           = x->o2dif;
-    o3dif           = x->o3dif;
-    o4dif           = x->o4dif;
-    writeval1       = x->writeval1;
-    writeval2       = x->writeval2;
-    writeval3       = x->writeval3;
-    writeval4       = x->writeval4;
-
-    go              = x->go;
-    statecontrol    = x->statecontrol;
-    playfadeflag    = x->playfadeflag;
-    recfadeflag     = x->recfadeflag;
-    recordhead      = x->recordhead;
-    alternateflag   = x->alternateflag;
-    pchans          = x->bchans;
-    srscale         = x->srscale;
-    frames          = x->bframes;
-    triginit        = x->triginit;
-    jumpflag        = x->jumpflag;
-    append          = x->append;
-    directionorig   = x->directionorig;
-    directionprev   = x->directionprev;
-    minloop         = x->minloop;
-    maxloop         = x->maxloop;
-    initiallow      = x->initiallow;
-    initialhigh     = x->initialhigh;
-    selection       = x->selection;
-    loopdetermine   = x->loopdetermine;
-    startloop       = x->startloop;
-    selstart        = x->selstart;
-    endloop         = x->endloop;
-    recendmark      = x->recendmark;
-    overdubamp      = x->overdubprev;
-    overdubprev     = x->overdubamp;
-    ovdbdif         = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
-    recordfade      = x->recordfade;
-    playfade        = x->playfade;
-    accuratehead    = x->playhead;
-    playhead        = trunc(accuratehead);
-    maxhead         = x->maxhead;
-    wrapflag        = x->wrapflag;
-    jumphead        = x->jumphead;
-    pokesteps       = x->pokesteps;
-    snrfade         = x->snrfade;
-    globalramp      = (double)x->globalramp;
-    snrramp         = (double)x->snrramp;
-    snrtype         = x->snrtype;
-    interp          = x->interpflag;
-    speedfloat      = x->speedfloat;
-    
-    switch (statecontrol)   // "all-in-one 'switch' statement to catch and handle all(most) messages" - raja
-    {
-        case 0:             // case 0: zero
-            break;
-        case 1:             // case 1: record initial loop
-            record = go = triginit = loopdetermine = 1;
-            recordfade = recfadeflag = playfade = playfadeflag = statecontrol = 0;
-            break;
-        case 2:             // case 2: record alternateflag (wtf is 'alternateflag' ('rectoo') ?!)  // in to OVERDUB ??
-            recendmark = 3;
-            record = recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 3:             // case 3: record off regular
-            recfadeflag = 1;
-            playfadeflag = 3;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 4:             // case 4: play alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // out of OVERDUB ??
-            recendmark = 2;
-            recfadeflag = playfadeflag = 1;
-            playfade = recordfade = statecontrol = 0;
-            break;
-        case 5:             // case 5: play on regular
-            triginit = 1;
-            statecontrol = 0;
-            break;
-        case 6:             // case 6: stop alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // after OVERDUB ??
-            playfade = recordfade = 0;
-            recendmark = playfadeflag = recfadeflag = 1;
-            statecontrol = 0;
-            break;
-        case 7:             // case 7: stop regular
-            if (record) {
-                recordfade = 0;
-                recfadeflag = 1;
-            }
-            playfade = 0;
-            playfadeflag = 1;
-            statecontrol = 0;
-            break;
-        case 8:             // case 8: jump
-            if (record) {
-                recordfade = 0;
-                recfadeflag = 2;
-            }
-            playfade = 0;
-            playfadeflag = 2;
-            statecontrol = 0;
-            break;
-        case 9:             // case 9: append
-            playfadeflag = 4;   // !! modified in perform loop switch case(s) for playing behind append
-            playfade = 0;
-            statecontrol = 0;
-            break;
-        case 10:            // case 10: special case append (what is special about it ?!)   // in to RECORD / OVERDUB ??
-            record = loopdetermine = alternateflag = 1;
-            snrfade = 0.0;
-            recordfade = recfadeflag = statecontrol = 0;
-            break;
-        case 11:            // case 11: record on regular (when ?! not looped ?!)
-            playfadeflag = 3;
-            recfadeflag = 5;
-            recordfade = playfade = statecontrol = 0;
-            break;          // !!
-    }
-    
-    // raja notes:
-    // 'snrfade = 0.0' triggers switch&ramp (declick play)
-    // 'recordhead = -1' triggers ipoke-interp cuts and accompanies buf~ fades (declick record)
-    
-    if (pchans >= 4)
-    {
-
-        while (n--)
-        {
-            recin1 = *in1++;
-            recin2 = *in2++;
-            recin3 = *in3++;
-            recin4 = *in4++;
-            speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
-            direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
-            
-            // declick for change of 'dir'ection
-            if (directionprev != direction) {
-                if (record && globalramp) {
-                    ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                    recordfade = recfadeflag = 0;
-                    recordhead = -1;
-                }
-                snrfade = 0.0;
-            }
-            
-            if ((record - recordprev) < 0) {           // samp @record-off
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-                //initialhigh = loopdetermine ? recordhead : initialhigh;
-                recordhead = -1;
-                dirt = 1;
-            } else if ((record - recordprev) > 0) {    // samp @record-on
-                recordfade = recfadeflag = 0;
-                if (speed < 1.0)
-                    snrfade = 0.0;
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-            }
-            recordprev = record;
-            
-            if (!loopdetermine)
-            {
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (recendmark)  // calculate end of loop
-                        {
-                            if (directionorig >= 0)
-                            {
-                                maxloop = CLAMP(maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;
-                                accuratehead = startloop = minloop + (selstart * setloopsize);
-                                endloop = startloop + (selection * setloopsize);
-                                if (endloop > maxloop) {
-                                    endloop = endloop - (setloopsize + 1);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                if (direction < 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            } else {
-                                maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                                startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
-                                if (endloop > (frames - 1)) {
-                                    endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                accuratehead = endloop;
-                                if (direction > 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            }
-                            if (globalramp)
-                                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                            append = alternateflag = recendmark = 0;
-                        } else {    // jump / play (inside 'window')
-                            setloopsize = maxloop - minloop;
-                            if (jumpflag)
-                                accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                            else
-                                accuratehead = (direction < 0) ? endloop : startloop;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recordhead = -1;
-                                recfadeflag = 0;
-                            }
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {        // jump-based constraints (outside 'window')
-                        setloopsize = maxloop - minloop;
-                        speedsrscaled = speed * srscale;
-                        
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        
-                        if (jumpflag)
-                        {
-                            if (wrapflag) {
-                                if ((accuratehead < endloop) || (accuratehead > startloop))
-                                    jumpflag = 0;
-                            } else {
-                                if ((accuratehead < endloop) && (accuratehead > startloop))
-                                    jumpflag = 0;
-                            }
-                            if (directionorig >= 0)
-                            {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < 0.0) {
-                                    accuratehead = maxloop + accuratehead;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {
-                                if (accuratehead > (frames - 1))
-                                {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // regular 'window' / 'position' constraints
-                            if (wrapflag)
-                            {
-                                if ((accuratehead > endloop) && (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (directionorig >= 0) {
-                                    if (accuratehead > maxloop)
-                                    {
-                                        accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                    else if (accuratehead < 0.0)
-                                    {
-                                        accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                } else {    // reverse
-                                    if (accuratehead < ((frames - 1) - maxloop))
-                                    {
-                                        accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                        snrfade = 0.0;
-                                        if (record)
-                                        {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    } else if (accuratehead > (frames - 1)) {
-                                        accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                }
-                            } else {    // (not wrapflag)
-                                if ((accuratehead > endloop) || (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // interp ratio
-                    playhead = trunc(accuratehead);
-                    if (direction > 0) {
-                        frac = accuratehead - playhead;
-                    } else if (direction < 0) {
-                        frac = 1.0 - (accuratehead - playhead);
-                    } else {
-                        frac = 0.0;
-                    }                                                                                   // setloopsize  // ??
-                    interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
-                    
-                    if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                        osamp3 =    linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
-                        osamp4 =    linear_interp(frac, b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3]);
-                    } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                        if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = cubic_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
-                            osamp4  = cubic_interp(frac, b[(interp0 * pchans) + 3], b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3], b[(interp3 * pchans) + 3]);
-                        } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = spline_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
-                            osamp4  = spline_interp(frac, b[(interp0 * pchans) + 3], b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3], b[(interp3 * pchans) + 3]);
-                        } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                            osamp3  = linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
-                            osamp4  = linear_interp(frac, b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3]);
-                        }
-                    }
-                    
-                    if (globalramp)
-                    {                                                   // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                        if (snrfade < 1.0)
-                        {
-                            if (snrfade == 0.0) {
-                                o1dif = o1prev - osamp1;
-                                o2dif = o2prev - osamp2;
-                                o3dif = o3prev - osamp3;
-                                o4dif = o4prev - osamp4;
-                            }
-                            osamp1 += ease_switchramp(o1dif, snrfade, snrtype);  // ... easing-curv options (implemented by raja)
-                            osamp2 += ease_switchramp(o2dif, snrfade, snrtype);
-                            osamp3 += ease_switchramp(o3dif, snrfade, snrtype);
-                            osamp4 += ease_switchramp(o4dif, snrfade, snrtype);
-                            snrfade += 1 / snrramp;
-                        }                                               // "Switch and Ramp" end
-                        
-                        if (playfade < globalramp)
-                        {                                               // realtime ramps for play on/off
-                            osamp1 = ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
-                            osamp2 = ease_record(osamp2, (playfadeflag > 0), globalramp, playfade);
-                            osamp3 = ease_record(osamp3, (playfadeflag > 0), globalramp, playfade);
-                            osamp4 = ease_record(osamp4, (playfadeflag > 0), globalramp, playfade);
-                            playfade++;
-                            if (playfade >= globalramp)
-                            {
-                                switch (playfadeflag)
-                                {
-                                    case 0:
-                                        break;
-                                    case 1:
-                                        playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                        break;
-                                    case 2:
-                                        if (!record)
-                                            triginit = jumpflag = 1;
-//                                      break;                  // !! no break - pass 2 -> 3 !!
-                                    case 3:                     // jump // record off reg
-                                        playfadeflag = playfade = 0;
-                                        break;
-                                    case 4:                     // append
-                                        go = triginit = loopdetermine = 1;
-                                        // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                        snrfade = 0.0;
-                                        playfade = playfadeflag = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        switch (playfadeflag)
-                        {
-                            case 0:
-                                break;
-                            case 1:
-                                playfadeflag = go = 0;
-                                break;
-                            case 2:
-                                if (!record)
-                                    triginit = jumpflag = 1;
-//                              break;                                  // !! no break - pass 2 -> 3 !!
-                            case 3:                                     // jump     // record off reg
-                                playfadeflag = 0;
-                                break;
-                            case 4:                                     // append
-                                go = triginit = loopdetermine = 1;
-                                // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                snrfade = 0.0;
-                                playfade = playfadeflag = 0;
-                                break;
-                        }
-                    }
-                    
-                } else {
-                    osamp1 = 0.0;
-                    osamp2 = 0.0;
-                    osamp3 = 0.0;
-                    osamp4 = 0.0;
-                }
-                
-                o1prev = osamp1;
-                o2prev = osamp2;
-                o3prev = osamp3;
-                o4prev = osamp4;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                *out3++ = osamp3;
-                *out4++ = osamp4;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                /*
-                 ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                 (modded to allow for 'window' and 'position' to change on the fly)
-                 raja's razor: simplest answer to everything was:
-                 recin1 = ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
-                 ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-                 ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
-                 */
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + (((double)b[(playhead * pchans) + 1]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin3 = ease_record(recin3 + (((double)b[(playhead * pchans) + 2]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin4 = ease_record(recin4 + (((double)b[(playhead * pchans) + 3]) * overdubamp), recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                        recin3 += ((double)b[(playhead * pchans) + 2]) * overdubamp;
-                        recin4 += ((double)b[(playhead * pchans) + 3]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = writeval4 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        writeval3 += recin3;
-                        writeval4 += recin4;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            writeval3 = writeval3 / pokesteps;
-                            writeval4 = writeval4 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        b[(recordhead * pchans) + 2] = writeval3;
-                        b[(recordhead * pchans) + 3] = writeval4;
-                        recplaydif = (double)(playhead - recordhead);
-                        if (recplaydif > 0) {                     // linear-interpolation for speed > 1x
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            coeff3 = (recin3 - writeval3) / recplaydif;
-                            coeff4 = (recin4 - writeval4) / recplaydif;
-                            for (i = recordhead + 1; i < playhead; i++) {
-                                writeval1 += coeff1;
-                                writeval2 += coeff2;
-                                writeval3 += coeff3;
-                                writeval4 += coeff4;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                                b[(i * pchans) + 2] = writeval3;
-                                b[(i * pchans) + 3] = writeval4;
-                            }
-                        } else {
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            coeff3 = (recin3 - writeval3) / recplaydif;
-                            coeff4 = (recin4 - writeval4) / recplaydif;
-                            for (i = recordhead - 1; i > playhead; i--) {
-                                writeval1 -= coeff1;
-                                writeval2 -= coeff2;
-                                writeval3 -= coeff3;
-                                writeval4 -= coeff4;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                                b[(i * pchans) + 2] = writeval3;
-                                b[(i * pchans) + 3] = writeval4;
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                        writeval3 = recin3;
-                        writeval4 = recin4;
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                }                                           // ~ipoke end
-                
-                if (globalramp)                                   // realtime ramps for record on/off
-                {
-                    if(recordfade < globalramp)
-                    {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp))
-                        {
-                            if (recfadeflag == 2) {
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            } else {
-                                record = 0;
-                            }
-                            recfadeflag = 0;
-                        }
-                    }
-                } else {
-                    if (recfadeflag) {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-                directionprev = direction;
-                
-            } else {                                        // initial loop creation
-            // !! is 'loopdetermine' !!
-
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (jumpflag)                          // jump
-                        {
-                            if (directionorig >= 0) {
-                                accuratehead = jumphead * maxhead;
-                            } else {
-                                accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                            }
-                            jumpflag = 0;
-                            snrfade = 0.0;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            }
-                            triginit = 0;
-                        } else if (append) {                // append
-                            snrfade = 0.0;
-                            triginit = 0;
-                            if (record)
-                            {
-                                accuratehead = maxhead;
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                alternateflag = 1;
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            } else {
-                                goto apned;
-                            }
-                        } else {                            // trigger start of initial loop creation
-                            directionorig = direction;
-                            minloop = 0.0;
-                            maxloop = frames - 1;
-                            maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
-                            alternateflag = 1;
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {
-                    apned:
-                        speedsrscaled = speed * srscale;
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (maxloop / 1024)) ? ((maxloop / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        if (direction == directionorig)                    // buffer~ boundary constraints and registry of maximum distance traversed
-                        {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = 0.0;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = frames - 1;
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = frames - 1;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = 0.0;
-                            } else {                        // <- track max write position
-                                if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) )
-                                    maxhead = accuratehead;
-                            }
-                        } else if (direction < 0) {               // wraparounds for reversal while creating initial-loop
-                            if (accuratehead < 0.0)
-                            {
-                                accuratehead = maxhead + accuratehead;
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        } else if (direction >= 0) {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = maxhead + (accuratehead - (frames - 1));
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        }
-                    //initialhigh = append ? initialhigh : maxhead;   // !! !!
-                    }
-                    
-                    playhead = trunc(accuratehead);
-                    
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
-                    
-                    if (globalramp)
-                    {
-                        if (playfade < globalramp)                    // realtime ramps for play on/off
-                        {
-                            playfade++;
-                            if (playfadeflag)
-                            {
-                                if (playfade >= globalramp)
-                                {
-                                    if (playfadeflag == 2) {
-                                        recendmark = 4;
-                                        go = 1;
-                                    }
-                                    playfadeflag = 0;
-                                    switch (recendmark) {
-                                        case 0:
-                                        case 1:
-                                            go = 0;
-                                            break;
-                                        case 2:
-                                        case 3:
-                                            go = 1;
-                                            playfade = 0;
-                                            break;
-                                        case 4:
-                                            recendmark = 0;
-                                            break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if (playfadeflag)
-                        {
-                            if (playfadeflag == 2) {
-                                recendmark = 4;
-                                go = 1;
-                            }
-                            playfadeflag = 0;
-                            switch (recendmark) {
-                                case 0:
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                case 3:
-                                    go = 1;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                }
-                
-                osamp1 = 0.0;
-                osamp2 = 0.0;
-                osamp3 = 0.0;
-                osamp4 = 0.0;
-                o1prev = osamp1;
-                o2prev = osamp2;
-                o3prev = osamp3;
-                o4prev = osamp4;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                *out3++ = osamp3;
-                *out4++ = osamp4;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                // (modded to assume maximum distance recorded into buffer~ as the total length)
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + ((double)b[(playhead * pchans) + 1]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin3 = ease_record(recin3 + ((double)b[(playhead * pchans) + 2]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin4 = ease_record(recin4 + ((double)b[(playhead * pchans) + 3]) * overdubamp, recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                        recin3 += ((double)b[(playhead * pchans) + 2]) * overdubamp;
-                        recin4 += ((double)b[(playhead * pchans) + 3]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = writeval4 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        writeval3 += recin3;
-                        writeval4 += recin4;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            writeval3 = writeval3 / pokesteps;
-                            writeval4 = writeval4 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        b[(recordhead * pchans) + 2] = writeval3;
-                        b[(recordhead * pchans) + 3] = writeval4;
-                        recplaydif = (double)(playhead - recordhead);        // linear-interp for speed > 1x
-                        if (direction != directionorig)
-                        {
-                            if (directionorig >= 0)
-                            {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (maxhead * 0.5))
-                                    {
-                                        recplaydif -= maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead - 1); i >= 0; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            writeval4 -= coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                        for (i = maxhead; i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            writeval4 -= coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            writeval4 += coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (maxhead * 0.5))
-                                    {
-                                        recplaydif += maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead + 1); i < (maxhead + 1); i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            writeval4 += coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                        for (i = 0; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            writeval4 += coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            writeval4 -= coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif -= ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead - 1); i >= maxhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            writeval4 -= coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                        for (i = (frames - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            writeval4 -= coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            writeval4 += coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif += ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead + 1); i < frames; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            writeval4 += coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                        for (i = maxhead; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            writeval4 += coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        coeff4 = (recin4 - writeval4) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            writeval4 -= coeff4;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                            b[(i * pchans) + 3] = writeval4;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (recplaydif > 0)
-                            {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                coeff3 = (recin3 - writeval3) / recplaydif;
-                                coeff4 = (recin4 - writeval4) / recplaydif;
-                                for (i = (recordhead + 1); i < playhead; i++) {
-                                    writeval1 += coeff1;
-                                    writeval2 += coeff2;
-                                    writeval3 += coeff3;
-                                    writeval4 += coeff4;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                    b[(i * pchans) + 2] = writeval3;
-                                    b[(i * pchans) + 3] = writeval4;
-                                }
-                            } else {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                coeff3 = (recin3 - writeval3) / recplaydif;
-                                coeff4 = (recin4 - writeval4) / recplaydif;
-                                for (i = (recordhead - 1); i > playhead; i--) {
-                                    writeval1 -= coeff1;
-                                    writeval2 -= coeff2;
-                                    writeval3 -= coeff3;
-                                    writeval4 -= coeff4;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                    b[(i * pchans) + 2] = writeval3;
-                                    b[(i * pchans) + 3] = writeval4;
-                                }
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                        writeval3 = recin3;
-                        writeval4 = recin4;
-                    }                                       // ~ipoke end
-                    if (globalramp)                               // realtime ramps for record on/off
-                    {
-                        if (recordfade < globalramp)
-                        {
-                            recordfade++;
-                            if ((recfadeflag) && (recordfade >= globalramp))
-                            {
-                                if (recfadeflag == 2) {
-                                    recendmark = 4;
-                                    triginit = jumpflag = 1;
-                                    recordfade = 0;
-                                } else if (recfadeflag == 5) {
-                                    record = 1;
-                                }
-                                recfadeflag = 0;
-                                switch (recendmark)
-                                {
-                                    case 0:
-                                        record = 0;
-                                        break;
-                                    case 1:
-                                        if (directionorig < 0) {
-                                            maxloop = (frames - 1) - maxhead;
-                                        } else {
-                                            maxloop = maxhead;
-                                        }
-//                                      break;                      // !! no break - pass 1 -> 2 !!
-                                    case 2:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = loopdetermine = 0;
-                                        triginit = 1;
-                                        break;
-                                    case 3:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = triginit = 1;
-                                        recordfade = loopdetermine = 0;
-                                        break;
-                                    case 4:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        recendmark = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        if (recfadeflag)
-                        {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
-                            recfadeflag = 0;
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                      // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }                           // ~ipoke end
-                    recordhead = playhead;
-                    dirt = 1;
-                    //initialhigh = maxloop;
-                }
-                directionprev = direction;
-            }
-            if (ovdbdif != 0.0)
-                overdubamp = overdubamp + ovdbdif;
-
-            initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
-        }
-        
-    }
-    else if (pchans == 3)
-    {
-
-        while (n--)
-        {
-            recin1 = *in1++;
-            recin2 = *in2++;
-            recin3 = *in3++;
-            // NOTUSED: recin4 = *in4++;
-            speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
-            direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
-            
-            // declick for change of 'dir'ection
-            if (directionprev != direction) {
-                if (record && globalramp) {
-                    ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                    recordfade = recfadeflag = 0;
-                    recordhead = -1;
-                }
-                snrfade = 0.0;
-            }   // !! !!
-            
-            if ((record - recordprev) < 0) {           // samp @record-off
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-                //initialhigh = loopdetermine ? recordhead : initialhigh;
-                recordhead = -1;
-                dirt = 1;
-            } else if ((record - recordprev) > 0) {    // samp @record-on
-                recordfade = recfadeflag = 0;
-                if (speed < 1.0)
-                    snrfade = 0.0;
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-            }
-            recordprev = record;
-            
-            if (!loopdetermine)
-            {
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (recendmark)  // calculate end of loop
-                        {
-                            if (directionorig >= 0)
-                            {
-                                maxloop = CLAMP(maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;
-                                accuratehead = startloop = minloop + (selstart * setloopsize);
-                                endloop = startloop + (selection * setloopsize);
-                                if (endloop > maxloop) {
-                                    endloop = endloop - (setloopsize + 1);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                if (direction < 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            } else {
-                                maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                                startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
-                                if (endloop > (frames - 1)) {
-                                    endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                accuratehead = endloop;
-                                if (direction > 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            }
-                            if (globalramp)
-                                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                            append = alternateflag = recendmark = 0;
-                        } else {    // jump / play (inside 'window')
-                            setloopsize = maxloop - minloop;
-                            if (jumpflag)
-                                accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                            else
-                                accuratehead = (direction < 0) ? endloop : startloop;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recordhead = -1;
-                                recfadeflag = 0;
-                            }
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {        // jump-based constraints (outside 'window')
-                        setloopsize = maxloop - minloop;
-                        speedsrscaled = speed * srscale;
-                        
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        
-                        if (jumpflag)
-                        {
-                            if (wrapflag) {
-                                if ((accuratehead < endloop) || (accuratehead > startloop))
-                                    jumpflag = 0;
-                            } else {
-                                if ((accuratehead < endloop) && (accuratehead > startloop))
-                                    jumpflag = 0;
-                            }
-                            if (directionorig >= 0)
-                            {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < 0.0) {
-                                    accuratehead = maxloop + accuratehead;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {
-                                if (accuratehead > (frames - 1))
-                                {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // regular 'window' / 'position' constraints
-                            if (wrapflag)
-                            {
-                                if ((accuratehead > endloop) && (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (directionorig >= 0) {
-                                    if (accuratehead > maxloop)
-                                    {
-                                        accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                    else if (accuratehead < 0.0)
-                                    {
-                                        accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                } else {    // reverse
-                                    if (accuratehead < ((frames - 1) - maxloop))
-                                    {
-                                        accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                        snrfade = 0.0;
-                                        if (record)
-                                        {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    } else if (accuratehead > (frames - 1)) {
-                                        accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                }
-                            } else {    // (not wrapflag)
-                                if ((accuratehead > endloop) || (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // interp ratio
-                    playhead = trunc(accuratehead);
-                    if (direction > 0) {
-                        frac = accuratehead - playhead;
-                    } else if (direction < 0) {
-                        frac = 1.0 - (accuratehead - playhead);
-                    } else {
-                        frac = 0.0;
-                    }                                                                                   // setloopsize  // ??
-                    interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
-                    
-                    if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                        osamp3 =    linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
-                    } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                        if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = cubic_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
-                        } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = spline_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
-                        } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                            osamp3  = linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
-                        }
-                    }
-                    
-                    if (globalramp)
-                    {                                                   // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                        if (snrfade < 1.0)
-                        {
-                            if (snrfade == 0.0) {
-                                o1dif = o1prev - osamp1;
-                                o2dif = o2prev - osamp2;
-                                o3dif = o3prev - osamp3;
-                            }
-                            osamp1 += ease_switchramp(o1dif, snrfade, snrtype);  // ... easing-curv options (implemented by raja)
-                            osamp2 += ease_switchramp(o2dif, snrfade, snrtype);
-                            osamp3 += ease_switchramp(o3dif, snrfade, snrtype);
-                            snrfade += 1 / snrramp;
-                        }                                               // "Switch and Ramp" end
-                        
-                        if (playfade < globalramp)
-                        {                                               // realtime ramps for play on/off
-                            osamp1 = ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
-                            osamp2 = ease_record(osamp2, (playfadeflag > 0), globalramp, playfade);
-                            osamp3 = ease_record(osamp3, (playfadeflag > 0), globalramp, playfade);
-                            playfade++;
-                            if (playfade >= globalramp)
-                            {
-                                switch (playfadeflag)
-                                {
-                                    case 0:
-                                        break;
-                                    case 1:
-                                        playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                        break;
-                                    case 2:
-                                        if (!record)
-                                            triginit = jumpflag = 1;
-//                                      break;                  // !! no break - pass 2 -> 3 !!
-                                    case 3:                     // jump // record off reg
-                                        playfadeflag = playfade = 0;
-                                        break;
-                                    case 4:                     // append
-                                        go = triginit = loopdetermine = 1;
-                                        // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                        snrfade = 0.0;
-                                        playfade = playfadeflag = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        switch (playfadeflag)
-                        {
-                            case 0:
-                                break;
-                            case 1:
-                                playfadeflag = go = 0;
-                                break;
-                            case 2:
-                                if (!record)
-                                    triginit = jumpflag = 1;
-//                              break;                                  // !! no break - pass 2 -> 3 !!
-                            case 3:                                     // jump     // record off reg
-                                playfadeflag = 0;
-                                break;
-                            case 4:                                     // append
-                                go = triginit = loopdetermine = 1;
-                                // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                snrfade = 0.0;
-                                playfade = playfadeflag = 0;
-                                break;
-                        }
-                    }
-                    
-                } else {
-                    osamp1 = 0.0;
-                    osamp2 = 0.0;
-                    osamp3 = 0.0;
-                }
-                
-                o1prev = osamp1;
-                o2prev = osamp2;
-                o3prev = osamp3;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                *out3++ = osamp3;
-                osamp4 = 0.0;
-                o4prev = osamp4;
-                *out4++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                /*
-                 ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                 (modded to allow for 'window' and 'position' to change on the fly)
-                 raja's razor: simplest answer to everything was:
-                 recin1 = ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
-                 ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-                 ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
-                 */
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + (((double)b[(playhead * pchans) + 1]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin3 = ease_record(recin3 + (((double)b[(playhead * pchans) + 2]) * overdubamp), recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                        recin3 += ((double)b[(playhead * pchans) + 2]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        writeval3 += recin3;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            writeval3 = writeval3 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        b[(recordhead * pchans) + 2] = writeval3;
-                        recplaydif = (double)(playhead - recordhead);
-                        if (recplaydif > 0) {                     // linear-interpolation for speed > 1x
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            coeff3 = (recin3 - writeval3) / recplaydif;
-                            for (i = recordhead + 1; i < playhead; i++) {
-                                writeval1 += coeff1;
-                                writeval2 += coeff2;
-                                writeval3 += coeff3;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                                b[(i * pchans) + 2] = writeval3;
-                            }
-                        } else {
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            coeff3 = (recin3 - writeval3) / recplaydif;
-                            for (i = recordhead - 1; i > playhead; i--) {
-                                writeval1 -= coeff1;
-                                writeval2 -= coeff2;
-                                writeval3 -= coeff3;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                                b[(i * pchans) + 2] = writeval3;
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                        writeval3 = recin3;
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                }                                           // ~ipoke end
-                
-                if (globalramp)                                   // realtime ramps for record on/off
-                {
-                    if(recordfade < globalramp)
-                    {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp))
-                        {
-                            if (recfadeflag == 2) {
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            } else {
-                                record = 0;
-                            }
-                            recfadeflag = 0;
-                        }
-                    }
-                } else {
-                    if (recfadeflag) {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-                directionprev = direction;
-                
-            } else {                                        // initial loop creation
-            // !! is 'loopdetermine' !!
-
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (jumpflag)                          // jump
-                        {
-                            if (directionorig >= 0) {
-                                accuratehead = jumphead * maxhead;
-                            } else {
-                                accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                            }
-                            jumpflag = 0;
-                            snrfade = 0.0;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            }
-                            triginit = 0;
-                        } else if (append) {                // append
-                            snrfade = 0.0;
-                            triginit = 0;
-                            if (record)
-                            {
-                                accuratehead = maxhead;
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                alternateflag = 1;
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            } else {
-                                goto apden;
-                            }
-                        } else {                            // trigger start of initial loop creation
-                            directionorig = direction;
-                            minloop = 0.0;
-                            maxloop = frames - 1;
-                            maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
-                            alternateflag = 1;
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {
-apden:
-                        speedsrscaled = speed * srscale;
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (maxloop / 1024)) ? ((maxloop / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        if (direction == directionorig)                    // buffer~ boundary constraints and registry of maximum distance traversed
-                        {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = 0.0;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = frames - 1;
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = frames - 1;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = 0.0;
-                            } else {                        // <- track max write position
-                                if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) )
-                                    maxhead = accuratehead;
-                            }
-                        } else if (direction < 0) {               // wraparounds for reversal while creating initial-loop
-                            if (accuratehead < 0.0)
-                            {
-                                accuratehead = maxhead + accuratehead;
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        } else if (direction >= 0) {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = maxhead + (accuratehead - (frames - 1));
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        }
-                    //initialhigh = append ? initialhigh : maxhead;   // !! !!
-                    }
-                    
-                    playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
-                    
-                    if (globalramp)
-                    {
-                        if (playfade < globalramp)                    // realtime ramps for play on/off
-                        {
-                            playfade++;
-                            if (playfadeflag)
-                            {
-                                if (playfade >= globalramp)
-                                {
-                                    if (playfadeflag == 2) {
-                                        recendmark = 4;
-                                        go = 1;
-                                    }
-                                    playfadeflag = 0;
-                                    switch (recendmark) {
-                                        case 0:
-                                        case 1:
-                                            go = 0;
-                                            break;
-                                        case 2:
-                                        case 3:
-                                            go = 1;
-                                            playfade = 0;
-                                            break;
-                                        case 4:
-                                            recendmark = 0;
-                                            break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if (playfadeflag)
-                        {
-                            if (playfadeflag == 2) {
-                                recendmark = 4;
-                                go = 1;
-                            }
-                            playfadeflag = 0;
-                            switch (recendmark) {
-                                case 0:
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                case 3:
-                                    go = 1;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                }
-                
-                osamp1 = 0.0;
-                osamp2 = 0.0;
-                osamp3 = 0.0;
-                o1prev = osamp1;
-                o2prev = osamp2;
-                o3prev = osamp3;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                *out3++ = osamp3;
-                osamp4 = 0.0;
-                o4prev = osamp4;
-                *out4++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                // (modded to assume maximum distance recorded into buffer~ as the total length)
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + ((double)b[(playhead * pchans) + 1]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin3 = ease_record(recin3 + ((double)b[(playhead * pchans) + 2]) * overdubamp, recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                        recin3 += ((double)b[(playhead * pchans) + 2]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        writeval3 += recin3;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            writeval3 = writeval3 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        b[(recordhead * pchans) + 2] = writeval3;
-                        recplaydif = (double)(playhead - recordhead);        // linear-interp for speed > 1x
-                        if (direction != directionorig)
-                        {
-                            if (directionorig >= 0)
-                            {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (maxhead * 0.5))
-                                    {
-                                        recplaydif -= maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead - 1); i >= 0; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                        for (i = maxhead; i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (maxhead * 0.5))
-                                    {
-                                        recplaydif += maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead + 1); i < (maxhead + 1); i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                        for (i = 0; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif -= ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead - 1); i >= maxhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                        for (i = (frames - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif += ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead + 1); i < frames; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                        for (i = maxhead; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            writeval3 += coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        coeff3 = (recin3 - writeval3) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            writeval3 -= coeff3;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                            b[(i * pchans) + 2] = writeval3;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (recplaydif > 0)
-                            {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                coeff3 = (recin3 - writeval3) / recplaydif;
-                                for (i = (recordhead + 1); i < playhead; i++) {
-                                    writeval1 += coeff1;
-                                    writeval2 += coeff2;
-                                    writeval3 += coeff3;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                    b[(i * pchans) + 2] = writeval3;
-                                }
-                            } else {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                coeff3 = (recin3 - writeval3) / recplaydif;
-                                for (i = (recordhead - 1); i > playhead; i--) {
-                                    writeval1 -= coeff1;
-                                    writeval2 -= coeff2;
-                                    writeval3 -= coeff3;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                    b[(i * pchans) + 2] = writeval3;
-                                }
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                        writeval3 = recin3;
-                    }                                       // ~ipoke end
-                    if (globalramp)                               // realtime ramps for record on/off
-                    {
-                        if (recordfade < globalramp)
-                        {
-                            recordfade++;
-                            if ((recfadeflag) && (recordfade >= globalramp))
-                            {
-                                if (recfadeflag == 2) {
-                                    recendmark = 4;
-                                    triginit = jumpflag = 1;
-                                    recordfade = 0;
-                                } else if (recfadeflag == 5) {
-                                    record = 1;
-                                }
-                                recfadeflag = 0;
-                                switch (recendmark)
-                                {
-                                    case 0:
-                                        record = 0;
-                                        break;
-                                    case 1:
-                                        if (directionorig < 0) {
-                                            maxloop = (frames - 1) - maxhead;
-                                        } else {
-                                            maxloop = maxhead;
-                                        }
-//                                      break;              // !! no break - pass 1 -> 2 !!
-                                    case 2:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = loopdetermine = 0;
-                                        triginit = 1;
-                                        break;
-                                    case 3:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = triginit = 1;
-                                        recordfade = loopdetermine = 0;
-                                        break;
-                                    case 4:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        recendmark = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        if (recfadeflag)
-                        {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
-                            recfadeflag = 0;
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                  // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }                           // ~ipoke end
-                    recordhead = playhead;
-                    dirt = 1;
-                    //initialhigh = maxloop;
-                }
-                directionprev = direction;
-            }
-            if (ovdbdif != 0.0)
-                overdubamp = overdubamp + ovdbdif;
-
-            initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
-        }
-
-    }
-    else if (pchans == 2)
-    {
-        while (n--)
-        {
-            recin1 = *in1++;
-            recin2 = *in2++;
-            // NOTUSED: recin3 = *in3++;
-            // NOTUSED: recin4 = *in4++;
-            speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
-            direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
-            
-            // declick for change of 'dir'ection
-            if (directionprev != direction) {
-                if (record && globalramp) {
-                    ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                    recordfade = recfadeflag = 0;
-                    recordhead = -1;
-                }
-                snrfade = 0.0;
-            }   // !! !!
-            
-            if ((record - recordprev) < 0) {           // samp @record-off
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-                //initialhigh = loopdetermine ? recordhead : initialhigh;
-                recordhead = -1;
-                dirt = 1;
-            } else if ((record - recordprev) > 0) {    // samp @record-on
-                recordfade = recfadeflag = 0;
-                if (speed < 1.0)
-                    snrfade = 0.0;
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-            }
-            recordprev = record;
-            
-            if (!loopdetermine)
-            {
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (recendmark)  // calculate end of loop
-                        {
-                            if (directionorig >= 0)
-                            {
-                                maxloop = CLAMP(maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;
-                                accuratehead = startloop = minloop + (selstart * setloopsize);
-                                endloop = startloop + (selection * setloopsize);
-                                if (endloop > maxloop) {
-                                    endloop = endloop - (setloopsize + 1);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                if (direction < 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            } else {
-                                maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                                startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
-                                if (endloop > (frames - 1)) {
-                                    endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                accuratehead = endloop;
-                                if (direction > 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            }
-                            if (globalramp)
-                                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                            append = alternateflag = recendmark = 0;
-                        } else {    // jump / play (inside 'window')
-                            setloopsize = maxloop - minloop;
-                            if (jumpflag)
-                                accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                            else
-                                accuratehead = (direction < 0) ? endloop : startloop;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recordhead = -1;
-                                recfadeflag = 0;
-                            }
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {        // jump-based constraints (outside 'window')
-                        setloopsize = maxloop - minloop;
-                        speedsrscaled = speed * srscale;
-                        
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        
-                        if (jumpflag)
-                        {
-                            if (wrapflag) {
-                                if ((accuratehead < endloop) || (accuratehead > startloop))
-                                    jumpflag = 0;
-                            } else {
-                                if ((accuratehead < endloop) && (accuratehead > startloop))
-                                    jumpflag = 0;
-                            }
-                            if (directionorig >= 0)
-                            {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < 0.0) {
-                                    accuratehead = maxloop + accuratehead;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {
-                                if (accuratehead > (frames - 1))
-                                {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // regular 'window' / 'position' constraints
-                            if (wrapflag)
-                            {
-                                if ((accuratehead > endloop) && (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (directionorig >= 0) {
-                                    if (accuratehead > maxloop)
-                                    {
-                                        accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                    else if (accuratehead < 0.0)
-                                    {
-                                        accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                } else {    // reverse
-                                    if (accuratehead < ((frames - 1) - maxloop))
-                                    {
-                                        accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                        snrfade = 0.0;
-                                        if (record)
-                                        {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    } else if (accuratehead > (frames - 1)) {
-                                        accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                }
-                            } else {    // (not wrapflag)
-                                if ((accuratehead > endloop) || (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // interp ratio
-                    playhead = trunc(accuratehead);
-                    if (direction > 0) {
-                        frac = accuratehead - playhead;
-                    } else if (direction < 0) {
-                        frac = 1.0 - (accuratehead - playhead);
-                    } else {
-                        frac = 0.0;
-                    }                                                                                   // setloopsize  // ??
-                    interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
-                    
-                    if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                    } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                        if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                        } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                        } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                        }
-                    }
-                    
-                    if (globalramp)
-                    {                                                   // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                        if (snrfade < 1.0)
-                        {
-                            if (snrfade == 0.0) {
-                                o1dif = o1prev - osamp1;
-                                o2dif = o2prev - osamp2;
-                            }
-                            osamp1 += ease_switchramp(o1dif, snrfade, snrtype);  // ... easing-curv options (implemented by raja)
-                            osamp2 += ease_switchramp(o2dif, snrfade, snrtype);
-                            snrfade += 1 / snrramp;
-                        }                                               // "Switch and Ramp" end
-                        
-                        if (playfade < globalramp)
-                        {                                               // realtime ramps for play on/off
-                            osamp1 = ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
-                            osamp2 = ease_record(osamp2, (playfadeflag > 0), globalramp, playfade);
-                            playfade++;
-                            if (playfade >= globalramp)
-                            {
-                                switch (playfadeflag)
-                                {
-                                    case 0:
-                                        break;
-                                    case 1:
-                                        playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                        break;
-                                    case 2:
-                                        if (!record)
-                                            triginit = jumpflag = 1;
-//                                      break;                  // !! no break - pass 2 -> 3 !!
-                                    case 3:                     // jump // record off reg
-                                        playfadeflag = playfade = 0;
-                                        break;
-                                    case 4:                     // append
-                                        go = triginit = loopdetermine = 1;
-                                        // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                        snrfade = 0.0;
-                                        playfade = playfadeflag = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        switch (playfadeflag)
-                        {
-                            case 0:
-                                break;
-                            case 1:
-                                playfadeflag = go = 0;
-                                break;
-                            case 2:
-                                if (!record)
-                                    triginit = jumpflag = 1;
-//                              break;                                  // !! no break - pass 2 -> 3 !!
-                            case 3:                                     // jump     // record off reg
-                                playfadeflag = 0;
-                                break;
-                            case 4:                                     // append
-                                go = triginit = loopdetermine = 1;
-                                // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                snrfade = 0.0;
-                                playfade = playfadeflag = 0;
-                                break;
-                        }
-                    }
-                    
-                } else {
-                    osamp1 = 0.0;
-                    osamp2 = 0.0;
-                }
-                
-                o1prev = osamp1;
-                o2prev = osamp2;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                osamp3 = 0.0;
-                o3prev = osamp3;
-                *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
-                *out4++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                /*
-                 ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                 (modded to allow for 'window' and 'position' to change on the fly)
-                 raja's razor: simplest answer to everything was:
-                 recin1 = ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
-                 ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-                 ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
-                */
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + (((double)b[(playhead * pchans) + 1]) * overdubamp), recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        recplaydif = (double)(playhead - recordhead);
-                        if (recplaydif > 0) {                     // linear-interpolation for speed > 1x
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            for (i = recordhead + 1; i < playhead; i++) {
-                                writeval1 += coeff1;
-                                writeval2 += coeff2;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                            }
-                        } else {
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            coeff2 = (recin2 - writeval2) / recplaydif;
-                            for (i = recordhead - 1; i > playhead; i--) {
-                                writeval1 -= coeff1;
-                                writeval2 -= coeff2;
-                                b[i * pchans] = writeval1;
-                                b[(i * pchans) + 1] = writeval2;
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                }                                           // ~ipoke end
-                
-                if (globalramp)                                   // realtime ramps for record on/off
-                {
-                    if(recordfade < globalramp)
-                    {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp))
-                        {
-                            if (recfadeflag == 2) {
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            } else {
-                                record = 0;
-                            }
-                            recfadeflag = 0;
-                        }
-                    }
-                } else {
-                    if (recfadeflag) {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-                directionprev = direction;
-                
-            } else {                                        // initial loop creation
-            // !! is 'loopdetermine' !!
-
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (jumpflag)                          // jump
-                        {
-                            if (directionorig >= 0) {
-                                accuratehead = jumphead * maxhead;
-                            } else {
-                                accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                            }
-                            jumpflag = 0;
-                            snrfade = 0.0;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            }
-                            triginit = 0;
-                        } else if (append) {                // append
-                            snrfade = 0.0;
-                            triginit = 0;
-                            if (record)
-                            {
-                                accuratehead = maxhead;
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                alternateflag = 1;
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            } else {
-                                goto apdne;
-                            }
-                        } else {                            // trigger start of initial loop creation
-                            directionorig = direction;
-                            minloop = 0.0;
-                            maxloop = frames - 1;
-                            maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
-                            alternateflag = 1;
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {
-apdne:
-                        speedsrscaled = speed * srscale;
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (maxloop / 1024)) ? ((maxloop / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        if (direction == directionorig)                    // buffer~ boundary constraints and registry of maximum distance traversed
-                        {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = 0.0;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = frames - 1;
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = frames - 1;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = 0.0;
-                            } else {                        // <- track max write position
-                                if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) )
-                                    maxhead = accuratehead;
-                            }
-                        } else if (direction < 0) {               // wraparounds for reversal while creating initial-loop
-                            if (accuratehead < 0.0)
-                            {
-                                accuratehead = maxhead + accuratehead;
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        } else if (direction >= 0) {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = maxhead + (accuratehead - (frames - 1));
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        }
-                    //initialhigh = append ? initialhigh : maxhead;   // !! !!
-                    }
-                    
-                    playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
-                    
-                    if (globalramp)
-                    {
-                        if (playfade < globalramp)                    // realtime ramps for play on/off
-                        {
-                            playfade++;
-                            if (playfadeflag)
-                            {
-                                if (playfade >= globalramp)
-                                {
-                                    if (playfadeflag == 2) {
-                                        recendmark = 4;
-                                        go = 1;
-                                    }
-                                    playfadeflag = 0;
-                                    switch (recendmark) {
-                                        case 0:
-                                        case 1:
-                                            go = 0;
-                                            break;
-                                        case 2:
-                                        case 3:
-                                            go = 1;
-                                            playfade = 0;
-                                            break;
-                                        case 4:
-                                            recendmark = 0;
-                                            break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if (playfadeflag)
-                        {
-                            if (playfadeflag == 2) {
-                                recendmark = 4;
-                                go = 1;
-                            }
-                            playfadeflag = 0;
-                            switch (recendmark) {
-                                case 0:
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                case 3:
-                                    go = 1;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                }
-                
-                osamp1 = 0.0;
-                osamp2 = 0.0;
-                o1prev = osamp1;
-                o2prev = osamp2;
-                *out1++ = osamp1;
-                *out2++ = osamp2;
-                osamp3 = 0.0;
-                o3prev = osamp3;
-                *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
-                *out4++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                // (modded to assume maximum distance recorded into buffer~ as the total length)
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
-                        recin1 = ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
-                        recin2 = ease_record(recin2 + ((double)b[(playhead * pchans) + 1]) * overdubamp, recfadeflag, globalramp, recordfade);
-                    } else {
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                        recin2 += ((double)b[(playhead * pchans) + 1]) * overdubamp;
-                    }
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        writeval2 += recin2;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                  // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            writeval2 = writeval2 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        b[(recordhead * pchans) + 1] = writeval2;
-                        recplaydif = (double)(playhead - recordhead);        // linear-interp for speed > 1x
-                        if (direction != directionorig)
-                        {
-                            if (directionorig >= 0)
-                            {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (maxhead * 0.5))
-                                    {
-                                        recplaydif -= maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i >= 0; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = maxhead; i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (maxhead * 0.5))
-                                    {
-                                        recplaydif += maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < (maxhead + 1); i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = 0; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif -= ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i >= maxhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = (frames - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif += ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead + 1); i < frames; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                        for (i = maxhead; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            writeval2 += coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        coeff2 = (recin2 - writeval2) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            writeval2 -= coeff2;
-                                            b[i * pchans] = writeval1;
-                                            b[(i * pchans) + 1] = writeval2;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (recplaydif > 0)
-                            {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                for (i = (recordhead + 1); i < playhead; i++) {
-                                    writeval1 += coeff1;
-                                    writeval2 += coeff2;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                }
-                            } else {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                coeff2 = (recin2 - writeval2) / recplaydif;
-                                for (i = (recordhead - 1); i > playhead; i--) {
-                                    writeval1 -= coeff1;
-                                    writeval2 -= coeff2;
-                                    b[i * pchans] = writeval1;
-                                    b[(i * pchans) + 1] = writeval2;
-                                }
-                            }
-                        }
-                        writeval1 = recin1;
-                        writeval2 = recin2;
-                    }                                       // ~ipoke end
-                    if (globalramp)                               // realtime ramps for record on/off
-                    {
-                        if (recordfade < globalramp)
-                        {
-                            recordfade++;
-                            if ((recfadeflag) && (recordfade >= globalramp))
-                            {
-                                if (recfadeflag == 2) {
-                                    recendmark = 4;
-                                    triginit = jumpflag = 1;
-                                    recordfade = 0;
-                                } else if (recfadeflag == 5) {
-                                    record = 1;
-                                }
-                                recfadeflag = 0;
-                                switch (recendmark)
-                                {
-                                    case 0:
-                                        record = 0;
-                                        break;
-                                    case 1:
-                                        if (directionorig < 0) {
-                                            maxloop = (frames - 1) - maxhead;
-                                        } else {
-                                            maxloop = maxhead;
-                                        }
-//                                      break;                  // !! no break - pass 1 -> 2 !!
-                                    case 2:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = loopdetermine = 0;
-                                        triginit = 1;
-                                        break;
-                                    case 3:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = triginit = 1;
-                                        recordfade = loopdetermine = 0;
-                                        break;
-                                    case 4:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        recendmark = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        if (recfadeflag)
-                        {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
-                            recfadeflag = 0;
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                      // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }                           // ~ipoke end
-                    recordhead = playhead;
-                    dirt = 1;
-                    //initialhigh = maxloop;
-                }
-                directionprev = direction;
-            }
-            if (ovdbdif != 0.0)
-                overdubamp = overdubamp + ovdbdif;
-
-            initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
-        }
-    
-    }
-    else
-    {
-        
-        while (n--)
-        {
-            recin1 = *in1++;
-            // NOTUSED: recin2 = *in2++;
-            // NOTUSED: recin3 = *in3++;
-            // NOTUSED: recin4 = *in4++;
-            speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
-            direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
-            
-            // declick for change of 'dir'ection
-            if (directionprev != direction) {
-                if (record && globalramp) {
-                    ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
-                    recordfade = recfadeflag = 0;
-                    recordhead = -1;
-                }
-                snrfade = 0.0;
-            }   // !! !!
-            
-            if ((record - recordprev) < 0) {           // samp @record-off
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
-                //initialhigh = loopdetermine ? recordhead : initialhigh;
-                recordhead = -1;
-                dirt = 1;
-            } else if ((record - recordprev) > 0) {    // samp @record-on
-                recordfade = recfadeflag = 0;
-                if (speed < 1.0)
-                    snrfade = 0.0;
-                if (globalramp)
-                    ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
-            }
-            recordprev = record;
-            
-            if (!loopdetermine)
-            {
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (recendmark)  // calculate end of loop
-                        {
-                            if (directionorig >= 0)
-                            {
-                                maxloop = CLAMP(maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;
-                                accuratehead = startloop = minloop + (selstart * setloopsize);
-                                endloop = startloop + (selection * setloopsize);
-                                if (endloop > maxloop) {
-                                    endloop = endloop - (setloopsize + 1);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                if (direction < 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            } else {
-                                maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
-                                setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
-                                startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
-                                if (endloop > (frames - 1)) {
-                                    endloop = ((frames - 1) - setloopsize) + (endloop - frames);
-                                    wrapflag = 1;
-                                } else {
-                                    wrapflag = 0;
-                                }
-                                accuratehead = endloop;
-                                if (direction > 0) {
-                                    if (globalramp)
-                                        ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                }
-                            }
-                            if (globalramp)
-                                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                            append = alternateflag = recendmark = 0;
-                        } else {    // jump / play (inside 'window')
-                            setloopsize = maxloop - minloop;
-                            if (jumpflag)
-                                accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
-                            else
-                                accuratehead = (direction < 0) ? endloop : startloop;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recordhead = -1;
-                                recfadeflag = 0;
-                            }
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {        // jump-based constraints (outside 'window')
-                        setloopsize = maxloop - minloop;
-                        speedsrscaled = speed * srscale;
-                        
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        
-                        if (jumpflag)
-                        {
-                            if (wrapflag) {
-                                if ((accuratehead < endloop) || (accuratehead > startloop))
-                                    jumpflag = 0;
-                            } else {
-                                if ((accuratehead < endloop) && (accuratehead > startloop))
-                                    jumpflag = 0;
-                            }
-                            if (directionorig >= 0)
-                            {
-                                if (accuratehead > maxloop)
-                                {
-                                    accuratehead = accuratehead - setloopsize;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < 0.0) {
-                                    accuratehead = maxloop + accuratehead;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            } else {
-                                if (accuratehead > (frames - 1))
-                                {
-                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (accuratehead < ((frames - 1) - maxloop)) {
-                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        } else {    // regular 'window' / 'position' constraints
-                            if (wrapflag)
-                            {
-                                if ((accuratehead > endloop) && (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                } else if (directionorig >= 0) {
-                                    if (accuratehead > maxloop)
-                                    {
-                                        accuratehead = accuratehead - setloopsize;  // fixed position ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                    else if (accuratehead < 0.0)
-                                    {
-                                        accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                } else {    // reverse
-                                    if (accuratehead < ((frames - 1) - maxloop))
-                                    {
-                                        accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
-                                        snrfade = 0.0;
-                                        if (record)
-                                        {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    } else if (accuratehead > (frames - 1)) {
-                                        accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
-                                        snrfade = 0.0;
-                                        if (record) {
-                                            if (globalramp) {
-                                                ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                                recordfade = 0;
-                                            }
-                                            recfadeflag = 0;
-                                            recordhead = -1;
-                                        }
-                                    }
-                                }
-                            } else {    // (not wrapflag)
-                                if ((accuratehead > endloop) || (accuratehead < startloop))
-                                {
-                                    accuratehead = (direction >= 0) ? startloop : endloop;
-                                    snrfade = 0.0;
-                                    if (record) {
-                                        if (globalramp) {
-                                            ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                            recordfade = 0;
-                                        }
-                                        recfadeflag = 0;
-                                        recordhead = -1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // interp ratio
-                    playhead = trunc(accuratehead);
-                    if (direction > 0) {
-                        frac = accuratehead - playhead;
-                    } else if (direction < 0) {
-                        frac = 1.0 - (accuratehead - playhead);
-                    } else {
-                        frac = 0.0;
-                    }                                                                                   // setloopsize  // ??
-                    interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
-                    
-                    if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                    } else {                // ...cubic / spline if interpflag > 0 (default cubic)
-                        if (interp == 1)
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                        else if (interp == 2)
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                        else
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                    }
-                    
-                    if (globalramp)
-                    {                                                   // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                        if (snrfade < 1.0)
-                        {
-                            if (snrfade == 0.0) {
-                                o1dif = o1prev - osamp1;
-                            }
-                            osamp1 += ease_switchramp(o1dif, snrfade, snrtype);  // <- easing-curv options (implemented by raja)
-                            snrfade += 1 / snrramp;
-                        }                                               // "Switch and Ramp" end
-                        
-                        if (playfade < globalramp)
-                        {                                               // realtime ramps for play on/off
-                            osamp1 = ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
-                            playfade++;
-                            if (playfade >= globalramp)
-                            {
-                                switch (playfadeflag)
-                                {
-                                    case 0:
-                                        break;
-                                    case 1:
-                                        playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
-                                        break;
-                                    case 2:
-                                        if (!record)
-                                            triginit = jumpflag = 1;
-//                                      break;                  // !! no break - pass 2 -> 3 !!
-                                    case 3:                     // jump // record off reg
-                                        playfadeflag = playfade = 0;
-                                        break;
-                                    case 4:                     // append
-                                        go = triginit = loopdetermine = 1;
-                                        // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                        snrfade = 0.0;
-                                        playfade = playfadeflag = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        switch (playfadeflag)
-                        {
-                            case 0:
-                                break;
-                            case 1:
-                                playfadeflag = go = 0;
-                                break;
-                            case 2:
-                                if (!record)
-                                    triginit = jumpflag = 1;
-//                              break;                                  // !! no break - pass 2 -> 3 !!
-                            case 3:                                     // jump     // record off reg
-                                playfadeflag = 0;
-                                break;
-                            case 4:                                     // append
-                                go = triginit = loopdetermine = 1;
-                                // !! will disabling this enable play behind append ?? should this be based on passing previous maxloop ??
-                                snrfade = 0.0;
-                                playfade = playfadeflag = 0;
-                                break;
-                        }
-                    }
-                    
-                } else {
-                    osamp1 = 0.0;
-                }
-                
-                o1prev = osamp1;
-                *out1++ = osamp1;
-                osamp2 = 0.0;
-                o2prev = osamp2;
-                *out2++ = 0.0;
-                osamp3 = 0.0;
-                o3prev = osamp3;
-                *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
-                *out4++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                /*
-                 ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                 (modded to allow for 'window' and 'position' to change on the fly)
-                 raja's razor: simplest answer to everything was:
-                 recin1 = ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
-                 ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-                 ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
-                */
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0))
-                        recin1 = ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
-                    else
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                    
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {              // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        recplaydif = (double)(playhead - recordhead);
-                        if (recplaydif > 0) {                     // linear-interpolation for speed > 1x
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            for (i = recordhead + 1; i < playhead; i++) {
-                                writeval1 += coeff1;
-                                b[i * pchans] = writeval1;
-                            }
-                        } else {
-                            coeff1 = (recin1 - writeval1) / recplaydif;
-                            for (i = recordhead - 1; i > playhead; i--) {
-                                writeval1 -= coeff1;
-                                b[i * pchans] = writeval1;
-                            }
-                        }
-                        writeval1 = recin1;
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                }                                           // ~ipoke end
-                
-                if (globalramp)                             // realtime ramps for record on/off
-                {
-                    if(recordfade < globalramp)
-                    {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp))
-                        {
-                            if (recfadeflag == 2) {
-                                triginit = jumpflag = 1;
-                                recordfade = 0;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            } else {
-                                record = 0;
-                            }
-                            recfadeflag = 0;
-                        }
-                    }
-                } else {
-                    if (recfadeflag) {
-                        if (recfadeflag == 2) {
-                            triginit = jumpflag = 1;
-                        } else if (recfadeflag == 5) {
-                            record = 1;
-                        } else {
-                            record = 0;
-                        }
-                        recfadeflag = 0;
-                    }
-                }
-                directionprev = direction;
-                
-            } else {                                        // initial loop creation
-            // !! is 'loopdetermine' !!
-
-                if (go)
-                {
-                    if (triginit)
-                    {
-                        if (jumpflag)                       // jump
-                        {
-                            if (directionorig >= 0) {
-                                accuratehead = jumphead * maxhead;
-                            } else {
-                                accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
-                            }
-                            jumpflag = 0;
-                            snrfade = 0.0;
-                            if (record) {
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            }
-                            triginit = 0;
-                        } else if (append) {                // append
-                            snrfade = 0.0;
-                            triginit = 0;
-                            if (record)
-                            {
-                                accuratehead = maxhead;
-                                if (globalramp) {
-                                    ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
-                                    recordfade = 0;
-                                }
-                                alternateflag = 1;
-                                recfadeflag = 0;
-                                recordhead = -1;
-                            } else {
-                                goto apnde;
-                            }
-                        } else {                            // trigger start of initial loop creation
-                            directionorig = direction;
-                            minloop = 0.0;
-                            maxloop = frames - 1;
-                            maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
-                            alternateflag = 1;
-                            recordhead = -1;
-                            snrfade = 0.0;
-                            triginit = 0;
-                        }
-                    } else {
-apnde:
-                        speedsrscaled = speed * srscale;
-                        if (record)
-                            speedsrscaled = (fabs(speedsrscaled) > (maxloop / 1024)) ? ((maxloop / 1024) * direction) : speedsrscaled;
-                        accuratehead = accuratehead + speedsrscaled;
-                        if (direction == directionorig)     // buffer~ boundary constraints and registry of maximum distance traversed
-                        {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = 0.0;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = frames - 1;
-                            } else if (accuratehead < 0.0) {
-                                accuratehead = frames - 1;
-                                record = append;
-                                if (record) {
-                                    if (globalramp) {
-                                        ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                        recordhead = -1;
-                                        recfadeflag = recordfade = 0;
-                                    }
-                                }
-                                recendmark = triginit = 1;
-                                loopdetermine = alternateflag = 0;
-                                maxhead = 0.0;
-                            } else {                        // <- track max write position
-                                if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) )
-                                    maxhead = accuratehead;
-                            }
-                        } else if (direction < 0) {         // wraparounds for reversal while creating initial-loop
-                            if (accuratehead < 0.0)
-                            {
-                                accuratehead = maxhead + accuratehead;
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, 0.0, -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        } else if (direction >= 0) {
-                            if (accuratehead > (frames - 1))
-                            {
-                                accuratehead = maxhead + (accuratehead - (frames - 1));
-                                if (globalramp) {
-                                    ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
-                                    recordhead = -1;
-                                    recfadeflag = recordfade = 0;
-                                }
-                            }
-                        }
-                    //initialhigh = append ? initialhigh : maxhead;   // !! !!
-                    }
-                    
-                    playhead = trunc(accuratehead);
-                    // NOTUSED:
-                    // if (direction > 0) {                    // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
-                    
-                    if (globalramp)
-                    {
-                        if (playfade < globalramp)          // realtime ramps for play on/off
-                        {
-                            playfade++;
-                            if (playfadeflag)
-                            {
-                                if (playfade >= globalramp)
-                                {
-                                    if (playfadeflag == 2) {
-                                        recendmark = 4;
-                                        go = 1;
-                                    }
-                                    playfadeflag = 0;
-                                    switch (recendmark) {
-                                        case 0:
-                                        case 1:
-                                            go = 0;
-                                            break;
-                                        case 2:
-                                        case 3:
-                                            go = 1;
-                                            playfade = 0;
-                                            break;
-                                        case 4:
-                                            recendmark = 0;
-                                            break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if (playfadeflag)
-                        {
-                            if (playfadeflag == 2) {
-                                recendmark = 4;
-                                go = 1;
-                            }
-                            playfadeflag = 0;
-                            switch (recendmark) {
-                                case 0:
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                case 3:
-                                    go = 1;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                }
-                
-                osamp1 = 0.0;
-                o1prev = osamp1;
-                *out1++ = osamp1;
-                osamp2 = 0.0;
-                o2prev = osamp2;
-                *out2++ = 0.0;
-                osamp3 = 0.0;
-                o3prev = osamp3;
-                *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
-                *out4++ = 0.0;
-                if (syncoutlet) {
-                    setloopsize = maxloop-minloop;
-                    *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
-                }
-                
-                // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
-                // (modded to assume maximum distance recorded into buffer~ as the total length)
-                if (record)
-                {
-                    if ((recordfade < globalramp) && (globalramp > 0.0))
-                        recin1 = ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
-                    else
-                        recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                    
-                    if (recordhead < 0) {
-                        recordhead = playhead;
-                        pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
-                    }
-                    
-                    if (recordhead == playhead) {
-                        writeval1 += recin1;
-                        pokesteps += 1.0;
-                    } else {
-                        if (pokesteps > 1.0) {                      // linear-averaging for speed < 1x
-                            writeval1 = writeval1 / pokesteps;
-                            pokesteps = 1.0;
-                        }
-                        b[recordhead * pchans] = writeval1;
-                        recplaydif = (double)(playhead - recordhead);     // linear-interp for speed > 1x
-                        if (direction != directionorig)
-                        {
-                            if (directionorig >= 0)
-                            {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (maxhead * 0.5))
-                                    {
-                                        recplaydif -= maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i >= 0; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = maxhead; i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (maxhead * 0.5))
-                                    {
-                                        recplaydif += maxhead;
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < (maxhead + 1); i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = 0; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (recplaydif > 0)
-                                {
-                                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif -= ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i >= maxhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = (frames - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                } else {
-                                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
-                                    {
-                                        recplaydif += ((frames - 1) - (maxhead));
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead + 1); i < frames; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                        for (i = maxhead; i < playhead; i++) {
-                                            writeval1 += coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    } else {
-                                        coeff1 = (recin1 - writeval1) / recplaydif;
-                                        for (i = (recordhead - 1); i > playhead; i--) {
-                                            writeval1 -= coeff1;
-                                            b[i * pchans] = writeval1;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (recplaydif > 0)
-                            {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                for (i = (recordhead + 1); i < playhead; i++) {
-                                    writeval1 += coeff1;
-                                    b[i * pchans] = writeval1;
-                                }
-                            } else {
-                                coeff1 = (recin1 - writeval1) / recplaydif;
-                                for (i = (recordhead - 1); i > playhead; i--) {
-                                    writeval1 -= coeff1;
-                                    b[i * pchans] = writeval1;
-                                }
-                            }
-                        }
-                        writeval1 = recin1;
-                    }                                           // ~ipoke end
-                    if (globalramp)                             // realtime ramps for record on/off
-                    {
-                        if (recordfade < globalramp)
-                        {
-                            recordfade++;
-                            if ((recfadeflag) && (recordfade >= globalramp))
-                            {
-                                if (recfadeflag == 2) {
-                                    recendmark = 4;
-                                    triginit = jumpflag = 1;
-                                    recordfade = 0;
-                                } else if (recfadeflag == 5) {
-                                    record = 1;
-                                }
-                                recfadeflag = 0;
-                                switch (recendmark)
-                                {
-                                    case 0:
-                                        record = 0;
-                                        break;
-                                    case 1:
-                                        if (directionorig < 0) {
-                                            maxloop = (frames - 1) - maxhead;
-                                        } else {
-                                            maxloop = maxhead;
-                                        }
-//                                      break;                  // !! no break - pass 1 -> 2 !!
-                                    case 2:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = loopdetermine = 0;
-                                        triginit = 1;
-                                        break;
-                                    case 3:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        record = triginit = 1;
-                                        recordfade = loopdetermine = 0;
-                                        break;
-                                    case 4:
-                                        //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                        recendmark = 0;
-                                        break;
-                                }
-                            }
-                        }
-                    } else {
-                        if (recfadeflag)
-                        {
-                            if (recfadeflag == 2) {
-                                recendmark = 4;
-                                triginit = jumpflag = 1;
-                            } else if (recfadeflag == 5) {
-                                record = 1;
-                            }
-                            recfadeflag = 0;
-                            switch (recendmark)
-                            {
-                                case 0:
-                                    record = 0;
-                                    break;
-                                case 1:
-                                    if (directionorig < 0) {
-                                        maxloop = (frames - 1) - maxhead;
-                                    } else {
-                                        maxloop = maxhead;
-                                    }
-//                                  break;                      // !! no break - pass 1 -> 2 !!
-                                case 2:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = loopdetermine = 0;
-                                    triginit = 1;
-                                    break;
-                                case 3:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    record = triginit = 1;
-                                    loopdetermine = 0;
-                                    break;
-                                case 4:
-                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
-                                    recendmark = 0;
-                                    break;
-                            }
-                        }
-                    }
-                    recordhead = playhead;
-                    dirt = 1;
-                    //initialhigh = maxloop;
-                }
-                directionprev = direction;
-            }
-            if (ovdbdif != 0.0)
-                overdubamp = overdubamp + ovdbdif;
-
-            initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
-        }
-        
-    }
-    
-    if (dirt) {                 // notify other buf-related objs of write
-        buffer_setdirty(buf);
-    }
-    buffer_unlocksamples(buf);
-    
-    if (x->clockgo) {                           // list-outlet stuff
-        clock_delay(x->tclock, 0);              // why ??
-        x->clockgo  = 0;
-    } else if ((!go) || (x->reportlist <= 0)) { // why '!go' ??
-        clock_unset(x->tclock);
-        x->clockgo  = 1;
-    }
-
-    x->o1prev           = o1prev;
-    x->o2prev           = o2prev;
-    x->o3prev           = o3prev;
-    x->o4prev           = o4prev;
-    x->o1dif            = o1dif;
-    x->o2dif            = o2dif;
-    x->o3dif            = o3dif;
-    x->o4dif            = o4dif;
-    x->writeval1        = writeval1;
-    x->writeval2        = writeval2;
-    x->writeval3        = writeval3;
-    x->writeval4        = writeval4;
-    
-    x->maxhead          = maxhead;
-    x->pokesteps        = pokesteps;
-    x->wrapflag         = wrapflag;
-    x->snrfade          = snrfade;
-    x->playhead         = accuratehead;
-    x->directionorig    = directionorig;
-    x->directionprev    = directionprev;
-    x->recordhead       = recordhead;
-    x->alternateflag    = alternateflag;
-    x->recordfade       = recordfade;
-    x->triginit         = triginit;
-    x->jumpflag         = jumpflag;
-    x->go               = go;
-    x->record           = record;
-    x->recordprev       = recordprev;
-    x->statecontrol     = statecontrol;
-    x->playfadeflag     = playfadeflag;
-    x->recfadeflag      = recfadeflag;
-    x->playfade         = playfade;
-    x->maxloop          = maxloop;
-    x->minloop          = minloop;
-    x->initiallow       = initiallow;
-    x->initialhigh      = initialhigh;
-    x->loopdetermine    = loopdetermine;
-    x->startloop        = startloop;
-    x->endloop          = endloop;
-    x->overdubprev      = overdubamp;
-    x->recendmark       = recendmark;
-    x->append           = append;
-    
-    return;
-    
-zero:
-    while (n--) {
-        *out1++  = 0.0;
-        *out2++  = 0.0;
-        *out3++  = 0.0;
-        *out4++  = 0.0;
-        if (syncoutlet)
-            *outPh++ = 0.0;
-    }
-    
-    return;
 }
 
+void karma_parse_numeric_arg(t_atom *arg, double *value)
+{
+    if (atom_gettype(arg) == A_FLOAT) {
+        *value = atom_getfloat(arg);
+    } else if (atom_gettype(arg) == A_LONG) {
+        *value = (double)atom_getlong(arg);
+    }
+}
+
+void karma_process_argc_args(t_karma *x, t_symbol *s, short argc, t_atom *argv, 
+                            double *templow, double *temphigh, long *loop_points_flag)
+{
+    t_symbol *loop_points_sym = 0;
+    double temphightemp;
+    
+    // Initialize defaults
+    *loop_points_flag = 2; // milliseconds
+    *templow = -1.0;
+    *temphigh = -1.0;
+    
+    // Process argument 4 (index 3) - loop points type
+    if (argc >= 4) {
+        if (atom_gettype(argv + 3) == A_SYM) {
+            loop_points_sym = atom_getsym(argv + 3);
+            karma_parse_loop_points_sym(loop_points_sym, loop_points_flag);
+        } else if (atom_gettype(argv + 3) == A_LONG) {
+            *loop_points_flag = atom_getlong(argv + 3);
+        } else if (atom_gettype(argv + 3) == A_FLOAT) {
+            *loop_points_flag = (long)atom_getfloat(argv + 3);
+        } else {
+            object_warn((t_object *)x, "%s message does not understand arg no.4, using milliseconds for args 2 & 3", s->s_name);
+            *loop_points_flag = 2;
+        }
+        *loop_points_flag = CLAMP(*loop_points_flag, 0, 2);
+    }
+    
+    // Process argument 3 (index 2) - high value or loop points type
+    if (argc >= 3) {
+        if (atom_gettype(argv + 2) == A_FLOAT || atom_gettype(argv + 2) == A_LONG) {
+            karma_parse_numeric_arg(argv + 2, temphigh);
+            if (*temphigh < 0.) {
+                object_warn((t_object *)x, "loop maximum cannot be less than 0., resetting");
+            }
+        } else if (atom_gettype(argv + 2) == A_SYM && argc < 4) {
+            loop_points_sym = atom_getsym(argv + 2);
+            karma_parse_loop_points_sym(loop_points_sym, loop_points_flag);
+        } else {
+            object_warn((t_object *)x, "%s message does not understand arg no.3, setting unit to maximum", s->s_name);
+        }
+    }
+    
+    // Process argument 2 (index 1) - low value or special handling
+    if (argc >= 2) {
+        if (atom_gettype(argv + 1) == A_FLOAT || atom_gettype(argv + 1) == A_LONG) {
+            if (*temphigh < 0.) {
+                temphightemp = *temphigh;
+                karma_parse_numeric_arg(argv + 1, temphigh);
+                *templow = temphightemp;
+            } else {
+                karma_parse_numeric_arg(argv + 1, templow);
+                if (*templow < 0.) {
+                    object_warn((t_object *)x, "loop minimum cannot be less than 0., setting to 0.");
+                    *templow = 0.;
+                }
+            }
+        } else if (atom_gettype(argv + 1) == A_SYM) {
+            loop_points_sym = atom_getsym(argv + 1);
+            if (loop_points_sym == ps_dummy) {
+                *loop_points_flag = 2;
+            } else if (loop_points_sym == ps_originalloop) {
+                object_warn((t_object *)x, "%s message does not understand 'buffername' followed by %s message, ignoring", s->s_name, loop_points_sym->s_name);
+                object_warn((t_object *)x, "(the %s message cannot be used whilst changing buffer~ reference", loop_points_sym->s_name);
+                object_warn((t_object *)x, "use %s %s message or just %s message instead)", gensym("setloop")->s_name, ps_originalloop->s_name, gensym("resetloop")->s_name);
+                // Set flag to indicate early return needed
+                *templow = -999.0; // Special flag value
+                return;
+            } else {
+                object_warn((t_object *)x, "%s message does not understand arg no.2, setting loop points to minimum (and maximum)", s->s_name);
+            }
+        } else {
+            object_warn((t_object *)x, "%s message does not understand arg no.2, setting loop points to defaults", s->s_name);
+        }
+    }
+}
+
+// Helper functions for further karma_mono_perform refactoring
+
+void karma_handle_ipoke_recording(float *b, long pchans, long playhead, long *recordhead, 
+                                  double recin1, double overdubamp, double globalramp, long recordfade, 
+                                  char recfadeflag, double *pokesteps, double *writeval1, t_bool *dirt)
+{
+    long i;
+    double recplaydif, coeff1;
+    
+    // Handle first record head initialization
+    if (*recordhead < 0) {
+        *recordhead = playhead;
+        *pokesteps = 0.0;
+    }
+    
+    if (*recordhead == playhead) {
+        *writeval1 += recin1;
+        *pokesteps += 1.0;
+    } else {
+        if (*pokesteps > 1.0) {              // linear-averaging for speed < 1x
+            *writeval1 = *writeval1 / *pokesteps;
+            *pokesteps = 1.0;
+        }
+        b[*recordhead * pchans] = *writeval1;
+        recplaydif = (double)(playhead - *recordhead);
+        if (recplaydif > 0) {               // linear-interpolation for speed > 1x
+            coeff1 = (recin1 - *writeval1) / recplaydif;
+            for (i = *recordhead + 1; i < playhead; i++) {
+                *writeval1 += coeff1;
+                b[i * pchans] = *writeval1;
+            }
+        } else {
+            coeff1 = (recin1 - *writeval1) / recplaydif;
+            for (i = *recordhead - 1; i > playhead; i--) {
+                *writeval1 -= coeff1;
+                b[i * pchans] = *writeval1;
+            }
+        }
+        *writeval1 = recin1;
+    }
+    *recordhead = playhead;
+    *dirt = 1;
+}
+
+void karma_handle_recording_fade(double globalramp, long *recordfade, char *recfadeflag, 
+                                 t_bool *record, t_bool *triginit, char *jumpflag)
+{
+    if (globalramp) {                             // realtime ramps for record on/off
+        if (*recordfade < globalramp) {
+            (*recordfade)++;
+            if ((*recfadeflag) && (*recordfade >= globalramp)) {
+                if (*recfadeflag == 2) {
+                    *triginit = *jumpflag = 1;
+                    *recordfade = 0;
+                } else if (*recfadeflag == 5) {
+                    *record = 1;
+                } else {
+                    *record = 0;
+                }
+                *recfadeflag = 0;
+            }
+        }
+    } else {
+        if (*recfadeflag) {
+            if (*recfadeflag == 2) {
+                *triginit = *jumpflag = 1;
+            } else if (*recfadeflag == 5) {
+                *record = 1;
+            } else {
+                *record = 0;
+            }
+            *recfadeflag = 0;
+        }
+    }
+}
+
+void karma_handle_jump_logic(double jumphead, double maxhead, long frames, char directionorig,
+                            double *accuratehead, char *jumpflag, double *snrfade, t_bool record,
+                            float *b, long pchans, long *recordhead, char direction, double globalramp,
+                            long *recordfade, char *recfadeflag, t_bool *triginit)
+{
+    if (*jumpflag) {                       // jump
+        if (directionorig >= 0) {
+            *accuratehead = jumphead * maxhead;      // !! maxhead !!
+        } else {
+            *accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
+        }
+        *jumpflag = 0;
+        *snrfade = 0.0;
+        if (record) {
+            if (globalramp) {
+                ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                *recordfade = 0;
+            }
+            *recfadeflag = 0;
+            *recordhead = -1;
+        }
+        *triginit = 0;
+    }
+}
+
+double karma_process_audio_interpolation(float *b, long pchans, double accuratehead, 
+                                         interp_type_t interp, t_bool record)
+{
+    long playhead = (long)accuratehead;
+    double frac = accuratehead - playhead;
+    double output = 0.0;
+    
+    if (!record) {           // if recording do linear-interp else...
+        switch (interp) {
+            case INTERP_CUBIC: 
+                // Cubic interpolation would go here
+                output = (double)b[playhead * pchans];
+                break;
+            default: // INTERP_LINEAR
+                if (frac > 0.0) {
+                    output = ((double)b[playhead * pchans] * (1.0 - frac)) + 
+                            ((double)b[(playhead + 1) * pchans] * frac);
+                } else {
+                    output = (double)b[playhead * pchans];
+                }
+                break;
+        }
+    } else {
+        output = (double)b[playhead * pchans];
+    }
+    
+    return output;
+}
 
