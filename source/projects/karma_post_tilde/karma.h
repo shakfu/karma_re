@@ -156,7 +156,7 @@ void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long v
 void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
 
 // Helper functions for karma_mono_perform refactoring
-void karma_process_state_control(t_karma *x, char *statecontrol, t_bool *record, t_bool *go, t_bool *triginit, 
+void karma_process_state_control(t_karma *x, control_state_t *statecontrol, t_bool *record, t_bool *go, t_bool *triginit, 
                                  t_bool *loopdetermine, long *recordfade, char *recfadeflag, 
                                  long *playfade, char *playfadeflag, char *recendmark);
 void karma_initialize_perform_vars(t_karma *x, double *accuratehead, long *playhead, double *maxhead, 
