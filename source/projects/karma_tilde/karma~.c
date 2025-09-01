@@ -17,6 +17,16 @@ struct t_karma {
         double  bmsr;           // buffer samplerate in samples-per-millisecond
     } buffer;
 
+    // Loop boundary group
+    struct {
+        long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
+        long   maxloop;         // the overall loop end recorded so far (in samples), is static value
+        long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
+        long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
+        long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
+        long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
+    } loop;
+
     long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
     long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
@@ -57,10 +67,6 @@ struct t_karma {
 
     interp_type_t interpflag; // playback interpolation
     long   recordhead;      // record head position in samples
-    long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
-    long   maxloop;         // the overall loop end recorded so far (in samples), is static value
-    long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
-    long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
     long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
     long   recordfade;      // fade counter for recording in samples
     long   playfade;        // fade counter for playback in samples
@@ -68,8 +74,6 @@ struct t_karma {
     long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
     switchramp_type_t snrtype;    // switch n ramp curve option choice
     long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
-    long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
-    long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
@@ -988,8 +992,8 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->writeval1 = x->writeval2 = x->writeval3 = x->writeval4 = 0;
         x->maxhead = 0.0;
         x->playhead = 0.0;
-        x->initiallow = -1;
-        x->initialhigh = -1;
+        x->loop.initiallow = -1;
+        x->loop.initialhigh = -1;
         x->selstart = 0.0;
         x->jumphead = 0.0;
         x->snrfade = 0.0;
@@ -1086,8 +1090,8 @@ void karma_buf_setup(t_karma* x, t_symbol* s)
         x->recordhead = -1;
         kh_init_buffer_properties(x, buf);
         x->bvsnorm = x->vsnorm * (x->buffer.bsr / (double)x->buffer.bframes);
-        x->minloop = x->startloop = 0.0;
-        x->maxloop = x->endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1) ?
+        x->loop.minloop = x->loop.startloop = 0.0;
+        x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1) ?
                                                     // x->bchans : 1);
         x->selstart = 0.0;
         x->selection = 1.0;
@@ -1114,8 +1118,8 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
             x->buffer.bframes = modframes;
             x->buffer.bchans = modchans;
             x->nchans = (modchans < x->ochans) ? modchans : x->ochans; // MIN
-            x->minloop = x->startloop = 0.0;
-            x->maxloop = x->endloop = (x->buffer.bframes - 1); // * ((modchans > 1) ?
+            x->loop.minloop = x->loop.startloop = 0.0;
+            x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((modchans > 1) ?
                                                         // modchans : 1);
             x->bvsnorm = x->vsnorm * (modbsr / (double)modframes);
 
@@ -1268,8 +1272,8 @@ void kh_buf_values_internal(
         x->minloop = x->startloop = low;
         x->maxloop = x->endloop = high;
     */
-    x->minloop = x->startloop = low * bframesm1;
-    x->maxloop = x->endloop = high * bframesm1;
+    x->loop.minloop = x->loop.startloop = low * bframesm1;
+    x->loop.maxloop = x->loop.endloop = high * bframesm1;
 
     // update selection
     karma_select_size(x, x->selection);
@@ -1522,8 +1526,8 @@ void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop .
     long      points_flag = 1; // initial low/high points stored as (long)samples
                                // internally
     bool   callerid = false;   // false = called from "setloop"
-    double initiallow = (double)x->initiallow;
-    double initialhigh = (double)x->initialhigh;
+    double initiallow = (double)x->loop.initiallow;
+    double initialhigh = (double)x->loop.initialhigh;
 
     if (ac == 1) { // " setloop reset " message
         if (atom_gettype(av)
@@ -1559,9 +1563,9 @@ void karma_resetloop(t_karma* x) // " resetloop " message only
     long points_flag = 1;    // initial low/high points stored as samples
                              // internally
     bool   callerid = false; // false = called from "resetloop"
-    double initiallow = (double)x->initiallow;   // initial low/high points stored
+    double initiallow = (double)x->loop.initiallow;   // initial low/high points stored
                                                  // as long...
-    double initialhigh = (double)x->initialhigh; // ...
+    double initialhigh = (double)x->loop.initialhigh; // ...
 
     //  if (!x->recordinit)
     kh_buf_values_internal(x, initiallow, initialhigh, points_flag, callerid);
@@ -1576,8 +1580,8 @@ void karma_clock_list(t_karma* x)
     if (rlgtz) // ('reportlist 0' == off, else milliseconds)
     {
         long frames = x->buffer.bframes - 1; // !! no '- 1' ??
-        long maxloop = x->maxloop;
-        long minloop = x->minloop;
+        long maxloop = x->loop.maxloop;
+        long minloop = x->loop.minloop;
         long setloopsize;
 
         double bmsr = x->buffer.bmsr;
@@ -1725,20 +1729,20 @@ void karma_select_start(
     // for dealing with selection-out-of-bounds logic:
 
     if (!x->loopdetermine) {
-        setloopsize = x->maxloop - x->minloop;
+        setloopsize = x->loop.maxloop - x->loop.minloop;
 
         if (x->directionorig < 0) // if originally in reverse
         {
             bfrmaesminusone = x->buffer.bframes - 1;
 
-            x->startloop = CLAMP(
-                (bfrmaesminusone - x->maxloop) + (positionstart * setloopsize),
-                bfrmaesminusone - x->maxloop, bfrmaesminusone);
-            x->endloop = x->startloop + (x->selection * x->maxloop);
+            x->loop.startloop = CLAMP(
+                (bfrmaesminusone - x->loop.maxloop) + (positionstart * setloopsize),
+                bfrmaesminusone - x->loop.maxloop, bfrmaesminusone);
+            x->loop.endloop = x->loop.startloop + (x->selection * x->loop.maxloop);
 
-            if (x->endloop > bfrmaesminusone) {
-                x->endloop = (bfrmaesminusone - setloopsize)
-                    + (x->endloop - bfrmaesminusone);
+            if (x->loop.endloop > bfrmaesminusone) {
+                x->loop.endloop = (bfrmaesminusone - setloopsize)
+                    + (x->loop.endloop - bfrmaesminusone);
                 x->wrapflag = 1;
             } else {
                 x->wrapflag = 0; // selection-in-bounds
@@ -1746,13 +1750,13 @@ void karma_select_start(
 
         } else { // if originally forwards
 
-            x->startloop = CLAMP(
-                ((positionstart * setloopsize) + x->minloop), x->minloop,
-                x->maxloop); // no need for CLAMP ??
-            x->endloop = x->startloop + (x->selection * setloopsize);
+            x->loop.startloop = CLAMP(
+                ((positionstart * setloopsize) + x->loop.minloop), x->loop.minloop,
+                x->loop.maxloop); // no need for CLAMP ??
+            x->loop.endloop = x->loop.startloop + (x->selection * setloopsize);
 
-            if (x->endloop > x->maxloop) {
-                x->endloop = x->endloop - setloopsize;
+            if (x->loop.endloop > x->loop.maxloop) {
+                x->loop.endloop = x->loop.endloop - setloopsize;
                 x->wrapflag = 1;
             } else {
                 x->wrapflag = 0; // selection-in-bounds
@@ -1773,16 +1777,16 @@ void karma_select_size(t_karma* x, double duration) // duration = "window" float
     // for dealing with selection-out-of-bounds logic:
 
     if (!x->loopdetermine) {
-        setloopsize = x->maxloop - x->minloop;
-        x->endloop = x->startloop + (x->selection * setloopsize);
+        setloopsize = x->loop.maxloop - x->loop.minloop;
+        x->loop.endloop = x->loop.startloop + (x->selection * setloopsize);
 
         if (x->directionorig < 0) // if originally in reverse
         {
             bfrmaesminusone = x->buffer.bframes - 1;
 
-            if (x->endloop > bfrmaesminusone) {
-                x->endloop = (bfrmaesminusone - setloopsize)
-                    + (x->endloop - bfrmaesminusone);
+            if (x->loop.endloop > bfrmaesminusone) {
+                x->loop.endloop = (bfrmaesminusone - setloopsize)
+                    + (x->loop.endloop - bfrmaesminusone);
                 x->wrapflag = 1;
             } else {
                 x->wrapflag = 0; // selection-in-bounds
@@ -1790,8 +1794,8 @@ void karma_select_size(t_karma* x, double duration) // duration = "window" float
 
         } else { // if originally forwards
 
-            if (x->endloop > x->maxloop) {
-                x->endloop = x->endloop - setloopsize;
+            if (x->loop.endloop > x->loop.maxloop) {
+                x->loop.endloop = x->loop.endloop - setloopsize;
                 x->wrapflag = 1;
             } else {
                 x->wrapflag = 0; // selection-in-bounds
@@ -1908,7 +1912,7 @@ void karma_append(t_karma* x)
     if (x->recordinit) {
         if ((!x->append) && (!x->loopdetermine)) {
             x->append = 1;
-            x->maxloop = (x->buffer.bframes - 1);
+            x->loop.maxloop = (x->buffer.bframes - 1);
             x->statecontrol = CONTROL_STATE_APPEND;
             x->statehuman = HUMAN_STATE_APPEND;
             x->stopallowed = 1;
@@ -2217,15 +2221,15 @@ void karma_mono_perform(
     append = x->append;
     directionorig = x->directionorig;
     directionprev = x->directionprev;
-    minloop = x->minloop;
-    maxloop = x->maxloop;
-    initiallow = x->initiallow;
-    initialhigh = x->initialhigh;
+    minloop = x->loop.minloop;
+    maxloop = x->loop.maxloop;
+    initiallow = x->loop.initiallow;
+    initialhigh = x->loop.initialhigh;
     selection = x->selection;
     loopdetermine = x->loopdetermine;
-    startloop = x->startloop;
+    startloop = x->loop.startloop;
     selstart = x->selstart;
-    endloop = x->endloop;
+    endloop = x->loop.endloop;
     recendmark = x->recendmark;
     overdubamp = x->overdubprev;
     overdubprev = x->overdubamp;
@@ -2589,13 +2593,13 @@ void karma_mono_perform(
     x->playfadeflag = playfadeflag;
     x->recfadeflag = recfadeflag;
     x->playfade = playfade;
-    x->minloop = minloop;
-    x->maxloop = maxloop;
-    x->initiallow = initiallow;
-    x->initialhigh = initialhigh;
+    x->loop.minloop = minloop;
+    x->loop.maxloop = maxloop;
+    x->loop.initiallow = initiallow;
+    x->loop.initialhigh = initialhigh;
     x->loopdetermine = loopdetermine;
-    x->startloop = startloop;
-    x->endloop = endloop;
+    x->loop.startloop = startloop;
+    x->loop.endloop = endloop;
     x->overdubprev = overdubamp;
     x->recendmark = recendmark;
     x->append = append;
