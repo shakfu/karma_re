@@ -195,17 +195,6 @@ void handle_initial_loop_boundary_constraints(
     long* recordfade, char* recendmark, t_bool* triginit, t_bool* loopdetermine,
     t_bool* alternateflag, double* maxhead)
 
-// can be reversed
-void karma_update_perform_state(
-    t_karma* x, double o1prev, double o1dif, double writeval1, double maxhead,
-    double pokesteps, t_bool wrapflag, double snrfade, double accuratehead,
-    char directionorig, char directionprev, long recordhead, t_bool alternateflag,
-    long recordfade, t_bool triginit, char jumpflag, t_bool go, t_bool record,
-    t_bool recordprev, control_state_t statecontrol, char playfadeflag,
-    char recfadeflag, long playfade, long minloop, long maxloop, long initiallow,
-    long initialhigh, t_bool loopdetermine, long startloop, long endloop,
-    double overdubamp, char recendmark, t_bool append)
-
 double karma_process_audio_interpolation(
     float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record)
 
