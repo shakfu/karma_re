@@ -110,28 +110,190 @@ static t_symbol *ps_originalloop;
 
 static t_class  *karma_class = NULL;
 
+// forward declarations of private helper functions
+static inline double kh_linear_interp(double f, double x, double y);
+static inline double kh_cubic_interp(double f, double w, double x, double y, double z);
+static inline double kh_spline_interp(double f, double w, double x, double y, double z);
+static inline double kh_ease_record(double y1, char updwn, double globalramp, long playfade);
+static inline double kh_ease_switchramp(double y1, double snrfade, switchramp_type_t snrtype);
+static inline void kh_ease_bufoff(long framesm1, float *buf, long pchans, long markposition, char direction, double globalramp);
+static inline void kh_apply_fade(long pos, long framesm1, float *buf, long pchans, double fade);
+static inline void kh_ease_bufon(
+    long framesm1, float *buf, long pchans, long markposition1, long markposition2, 
+    char direction, double globalramp);
+
+static inline void kh_process_recording_fade_completion(
+    char recfadeflag, char *recendmark, t_bool *record, 
+    t_bool *triginit, t_bool *jumpflag, t_bool *loopdetermine,
+    long *recordfade, char directionorig, long *maxloop, 
+    long maxhead, long frames);
+
+static inline void kh_calculate_sync_output(
+    double osamp1, double *o1prev, double **out1, char syncoutlet,
+    double **outPh, double accuratehead, double minloop, double maxloop,
+    char directionorig, long frames, double setloopsize);
+
+static inline void kh_apply_ipoke_interpolation(
+    float *b, long pchans, long start_idx, long end_idx,
+    double *writeval1, double coeff1, char direction);
+
+static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf);
+
+static inline void kh_process_recording_cleanup(
+    t_bool record, double globalramp, long frames, float *b, long pchans,
+    double accuratehead, long *recordhead, char direction, long *recordfade, 
+    char *recfadeflag, double *snrfade, t_bool use_ease_on, double ease_pos);
+
+static inline void kh_process_forward_jump_boundary(
+    double *accuratehead, long maxloop, long setloopsize, t_bool record,
+    double globalramp, long frames, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+
+static inline void kh_process_reverse_jump_boundary(
+    double *accuratehead, long frames, long setloopsize, long maxloop,
+    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+
+static inline void kh_process_forward_wrap_boundary(
+    double *accuratehead, long maxloop, long minloop, long setloopsize,
+    t_bool record, double globalramp, long frames, float *b, long pchans,
+    long *recordhead, char direction, long *recordfade, char *recfadeflag,
+    double *snrfade);
+
+static inline void kh_process_reverse_wrap_boundary(
+    double *accuratehead, long frames, long maxloop, long setloopsize,
+    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
+    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+
+static inline void kh_process_loop_boundary(
+    double *accuratehead, double speed, double srscale, char direction, 
+    char directionorig, long frames, long maxloop, long minloop, 
+    long setloopsize, long startloop, long endloop, t_bool wrapflag, 
+    t_bool jumpflag, t_bool record, double globalramp, float *b, 
+    long pchans, long *recordhead, long *recordfade, char *recfadeflag,
+    double *snrfade);
+
+static inline double kh_perform_playback_interpolation(
+    double frac, float *b, long interp0, long interp1, 
+    long interp2, long interp3, long pchans, 
+    interp_type_t interp, t_bool record);
+
+static inline void kh_process_playfade_state(
+    char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag, 
+    t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record);
+
+static inline void kh_process_loop_initialization(
+    t_bool triginit, char recendmark, char directionorig, 
+    long *maxloop, long minloop, long maxhead, long frames, 
+    double selstart, double selection, double *accuratehead, 
+    long *startloop, long *endloop, long *setloopsize, 
+    t_bool *wrapflag, char direction, double globalramp, 
+    float *b, long pchans, long recordhead, t_bool record, 
+    t_bool jumpflag, double jumphead, double *snrfade, 
+    t_bool *append, t_bool *alternateflag, char *recendmark_ptr);
+
+static inline void kh_process_initial_loop_creation(
+    t_bool go, t_bool triginit, t_bool jumpflag, t_bool append, 
+    double jumphead, long maxhead, long frames, char directionorig, 
+    double *accuratehead, double *snrfade, t_bool record, 
+    double globalramp, float *b, long pchans, long *recordhead, 
+    char direction, long *recordfade, char *recfadeflag, 
+    t_bool *alternateflag, t_bool *triginit_ptr);
+
+static inline long kh_wrap_index(long idx, char directionorig, long maxloop, long framesm1);
+
+static inline void kh_interp_index(
+    long playhead, long *indx0, long *indx1, long *indx2, long *indx3,
+    char direction, char directionorig, long maxloop, long framesm1);
+
+static inline void kh_setloop_internal(t_karma* x, t_symbol* s, short argc, t_atom* argv);
+
+static inline void kh_process_state_control(
+    t_karma* x, control_state_t* statecontrol, t_bool* record, t_bool* go,
+    t_bool* triginit, t_bool* loopdetermine, long* recordfade, char* recfadeflag,
+    long* playfade, char* playfadeflag, char* recendmark);
+
+static inline void kh_initialize_perform_vars(
+    t_karma* x, double* accuratehead, long* playhead, double* maxhead, t_bool* wrapflag,
+    double* jumphead, double* pokesteps, double* snrfade, double* globalramp,
+    double* snrramp, switchramp_type_t* snrtype, interp_type_t* interp,
+    double* speedfloat, double* o1prev, double* o1dif, double* writeval1);
+
+static inline void kh_process_direction_change(
+    char directionprev, char direction, t_bool record, double globalramp, long frames,
+    float* b, long pchans, long recordhead, long* recordfade, char* recfadeflag,
+    double* snrfade);
+
+static inline void kh_process_record_toggle(
+    t_bool record, t_bool recordprev, double globalramp, long frames, float* b,
+    long pchans, long* recordhead, long* recordfade, char* recfadeflag,
+    double accuratehead, char direction, double speed, double* snrfade, t_bool* dirt);
+
+static inline t_bool kh_validate_buffer(t_karma* x, t_symbol* bufname);
+
+static inline void kh_parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_flag);
+
+static inline void kh_parse_numeric_arg(t_atom* arg, double* value);
+
+static inline void kh_process_argc_args(
+    t_karma* x, t_symbol* s, short argc, t_atom* argv, double* templow, double* temphigh,
+    long* loop_points_flag);
+
+static inline void kh_process_ipoke_recording(
+    float* b, long pchans, long playhead, long* recordhead, double recin1,
+    double overdubamp, double globalramp, long recordfade, char recfadeflag,
+    double* pokesteps, double* writeval1, t_bool* dirt);
+
+static inline void kh_process_recording_fade(
+    double globalramp, long* recordfade, char* recfadeflag, t_bool* record,
+    t_bool* triginit, char* jumpflag);
+
+static inline void kh_process_jump_logic(
+    double jumphead, double maxhead, long frames, char directionorig,
+    double* accuratehead, char* jumpflag, double* snrfade, t_bool record, float* b,
+    long pchans, long* recordhead, char direction, double globalramp, long* recordfade,
+    char* recfadeflag, t_bool* triginit);
+
+static inline void kh_process_initial_loop_ipoke_recording(
+    float* b, long pchans, long* recordhead, long playhead, double recin1,
+    double* pokesteps, double* writeval1, char direction, char directionorig,
+    long maxhead, long frames);
+
+static inline void kh_process_initial_loop_boundary_constraints(
+    double* accuratehead, double speed, double srscale, char direction,
+    char directionorig, long frames, long maxloop, long minloop, t_bool append,
+    t_bool* record, double globalramp, float* b, long pchans, long* recordhead,
+    char* recfadeflag, long* recordfade, char* recendmark, t_bool* triginit,
+    t_bool* loopdetermine, t_bool* alternateflag, double* maxhead);
+
+static inline double kh_process_audio_interpolation(
+    float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record);
+
+
+
+
 
 // Linear Interp
-static inline double linear_interp(double f, double x, double y)
+static inline double kh_linear_interp(double f, double x, double y)
 {
     return (x + f*(y - x));
 }
 
 // Hermitic Cubic Interp, 4-point 3rd-order, ( James McCartney / Alex Harker )
-static inline double cubic_interp(double f, double w, double x, double y, double z)
+static inline double kh_cubic_interp(double f, double w, double x, double y, double z)
 {
     return ((((0.5*(z - w) + 1.5*(x - y))*f + (w - 2.5*x + y + y - 0.5*z))*f + (0.5*(y - w)))*f + x);
 }
 
 // Catmull-Rom Spline Interp, 4-point 3rd-order, ( Paul Breeuwsma / Paul Bourke )
-static inline double spline_interp(double f, double w, double x, double y, double z)
+static inline double kh_spline_interp(double f, double w, double x, double y, double z)
 {
     return (((-0.5*w + 1.5*x - 1.5*y + 0.5*z)*pow(f,3)) + ((w - 2.5*x + y + y - 0.5*z)*pow(f,2)) + ((-0.5*w + 0.5*y)*f) + x);
 }
 
 
 // easing function for recording (with ipoke)
-static inline double ease_record(double y1, char updwn, double globalramp, long playfade)  // !! rewrite !!
+static inline double kh_ease_record(double y1, char updwn, double globalramp, long playfade)
 {
     double ifup    = (1.0 - (((double)playfade) / globalramp)) * PI;
     double ifdown  = (((double)playfade) / globalramp) * PI;
@@ -139,7 +301,7 @@ static inline double ease_record(double y1, char updwn, double globalramp, long 
 }
 
 // easing function for switch & ramp
-static inline double ease_switchramp(double y1, double snrfade, switchramp_type_t snrtype)
+static inline double kh_ease_switchramp(double y1, double snrfade, switchramp_type_t snrtype)
 {
     switch (snrtype)
     {
@@ -175,7 +337,7 @@ static inline double ease_switchramp(double y1, double snrfade, switchramp_type_
 }
 
 // easing function for buffer read
-static inline void ease_bufoff(long framesm1, float *buf, long pchans, long markposition, char direction, double globalramp)
+static inline void kh_ease_bufoff(long framesm1, float *buf, long pchans, long markposition, char direction, double globalramp)
 {
     long i, fadpos, c;
     double fade;
@@ -198,7 +360,7 @@ static inline void ease_bufoff(long framesm1, float *buf, long pchans, long mark
     }
 }
 
-static inline void apply_fade(long pos, long framesm1, float *buf, long pchans, double fade)
+static inline void kh_apply_fade(long pos, long framesm1, float *buf, long pchans, double fade)
 {
     if (pos < 0 || pos > framesm1)
         return;
@@ -209,7 +371,7 @@ static inline void apply_fade(long pos, long framesm1, float *buf, long pchans, 
 
 
 // easing function for buffer write
-static inline void ease_bufon(
+static inline void kh_ease_bufon(
     long framesm1, float *buf, long pchans, long markposition1, long markposition2, 
     char direction, double globalramp)
 {
@@ -223,14 +385,14 @@ static inline void ease_bufon(
         fadpos[1] = (markposition2 - direction) - (direction * i);
         fadpos[2] =  markposition2 + (direction * i);
 
-        apply_fade(fadpos[0], framesm1, buf, pchans, fade);
-        apply_fade(fadpos[1], framesm1, buf, pchans, fade);
-        apply_fade(fadpos[2], framesm1, buf, pchans, fade);
+                    kh_apply_fade(fadpos[0], framesm1, buf, pchans, fade);
+            kh_apply_fade(fadpos[1], framesm1, buf, pchans, fade);
+            kh_apply_fade(fadpos[2], framesm1, buf, pchans, fade);
     }
 }
 
 // Helper function to handle recording fade completion logic
-static inline void handle_recording_fade_completion(
+static inline void kh_process_recording_fade_completion(
     char recfadeflag, char *recendmark, t_bool *record, 
     t_bool *triginit, t_bool *jumpflag, t_bool *loopdetermine,
     long *recordfade, char directionorig, long *maxloop, 
@@ -270,7 +432,7 @@ static inline void handle_recording_fade_completion(
 }
 
 // Helper function to calculate sync outlet output
-static inline void calculate_sync_output(
+static inline void kh_calculate_sync_output(
     double osamp1, double *o1prev, double **out1, char syncoutlet,
     double **outPh, double accuratehead, double minloop, double maxloop,
     char directionorig, long frames, double setloopsize)
@@ -286,7 +448,7 @@ static inline void calculate_sync_output(
 }
 
 // Helper function to apply iPoke interpolation over a range
-static inline void apply_ipoke_interpolation(
+static inline void kh_apply_ipoke_interpolation(
     float *b, long pchans, long start_idx, long end_idx,
     double *writeval1, double coeff1, char direction) 
 {
@@ -304,7 +466,7 @@ static inline void apply_ipoke_interpolation(
 }
 
 // Helper function to initialize buffer properties
-static inline void init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
+static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
     x->bchans   = buffer_getchannelcount(buf);
     x->bframes  = buffer_getframecount(buf);
     x->bmsr     = buffer_getmillisamplerate(buf);
@@ -315,7 +477,7 @@ static inline void init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
 
 // Helper function to handle loop boundary wrapping and jumping
 // Helper function to handle recording state cleanup after boundary adjustments
-static inline void handle_recording_cleanup(
+static inline void kh_process_recording_cleanup(
     t_bool record, double globalramp, long frames, float *b, long pchans,
     double accuratehead, long *recordhead, char direction, long *recordfade, 
     char *recfadeflag, double *snrfade, t_bool use_ease_on, double ease_pos)
@@ -324,9 +486,9 @@ static inline void handle_recording_cleanup(
     if (record) {
         if (globalramp) {
             if (use_ease_on) {
-                ease_bufon(frames - 1, b, pchans, accuratehead, *recordhead, direction, globalramp);
+                kh_ease_bufon(frames - 1, b, pchans, accuratehead, *recordhead, direction, globalramp);
             } else {
-                ease_bufoff(frames - 1, b, pchans, ease_pos, -direction, globalramp);
+                kh_ease_bufoff(frames - 1, b, pchans, ease_pos, -direction, globalramp);
             }
             *recordfade = 0;
         }
@@ -336,45 +498,45 @@ static inline void handle_recording_cleanup(
 }
 
 // Helper function to handle forward direction boundary wrapping for jumpflag
-static inline void handle_forward_jump_boundary(
+static inline void kh_process_forward_jump_boundary(
     double *accuratehead, long maxloop, long setloopsize, t_bool record,
     double globalramp, long frames, float *b, long pchans, long *recordhead,
     char direction, long *recordfade, char *recfadeflag, double *snrfade)
 {
     if (*accuratehead > maxloop) {
         *accuratehead = *accuratehead - setloopsize;
-        handle_recording_cleanup(record, globalramp, frames, b, pchans, 
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans, 
                                *accuratehead, recordhead, direction, recordfade, 
                                recfadeflag, snrfade, 1, 0);
     } else if (*accuratehead < 0.0) {
         *accuratehead = maxloop + *accuratehead;
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 1, 0);
     }
 }
 
 // Helper function to handle reverse direction boundary wrapping for jumpflag
-static inline void handle_reverse_jump_boundary(
+static inline void kh_process_reverse_jump_boundary(
     double *accuratehead, long frames, long setloopsize, long maxloop,
     t_bool record, double globalramp, float *b, long pchans, long *recordhead,
     char direction, long *recordfade, char *recfadeflag, double *snrfade)
 {
     if (*accuratehead > (frames - 1)) {
         *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 1, 0);
     } else if (*accuratehead < ((frames - 1) - maxloop)) {
         *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 1, 0);
     }
 }
 
 // Helper function to handle forward direction boundaries with wrapflag
-static inline void handle_forward_wrap_boundary(
+static inline void kh_process_forward_wrap_boundary(
     double *accuratehead, long maxloop, long minloop, long setloopsize,
     t_bool record, double globalramp, long frames, float *b, long pchans,
     long *recordhead, char direction, long *recordfade, char *recfadeflag,
@@ -382,37 +544,37 @@ static inline void handle_forward_wrap_boundary(
 {
     if (*accuratehead > maxloop) {
         *accuratehead = *accuratehead - setloopsize;
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 0, maxloop);
     } else if (*accuratehead < 0.0) {
         *accuratehead = maxloop + setloopsize;
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 0, minloop);
     }
 }
 
 // Helper function to handle reverse direction boundaries with wrapflag
-static inline void handle_reverse_wrap_boundary(
+static inline void kh_process_reverse_wrap_boundary(
     double *accuratehead, long frames, long maxloop, long setloopsize,
     t_bool record, double globalramp, float *b, long pchans, long *recordhead,
     char direction, long *recordfade, char *recfadeflag, double *snrfade)
 {
     if (*accuratehead < ((frames - 1) - maxloop)) {
         *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 0, ((frames - 1) - maxloop));
     } else if (*accuratehead > (frames - 1)) {
         *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
-        handle_recording_cleanup(record, globalramp, frames, b, pchans,
+        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                *accuratehead, recordhead, direction, recordfade,
                                recfadeflag, snrfade, 0, (frames - 1));
     }
 }
 
-static inline void handle_loop_boundary(
+static inline void kh_process_loop_boundary(
     double *accuratehead, double speed, double srscale, char direction, 
     char directionorig, long frames, long maxloop, long minloop, 
     long setloopsize, long startloop, long endloop, t_bool wrapflag, 
@@ -431,11 +593,11 @@ static inline void handle_loop_boundary(
     if (jumpflag) {
         // Handle boundary wrapping for forward/reverse directions
         if (directionorig >= 0) {
-            handle_forward_jump_boundary(accuratehead, maxloop, setloopsize, record,
+            kh_process_forward_jump_boundary(accuratehead, maxloop, setloopsize, record,
                                        globalramp, frames, b, pchans, recordhead,
                                        direction, recordfade, recfadeflag, snrfade);
         } else {
-            handle_reverse_jump_boundary(accuratehead, frames, setloopsize, maxloop,
+            kh_process_reverse_jump_boundary(accuratehead, frames, setloopsize, maxloop,
                                        record, globalramp, b, pchans, recordhead,
                                        direction, recordfade, recfadeflag, snrfade);
         }
@@ -444,15 +606,15 @@ static inline void handle_loop_boundary(
         if (wrapflag) {
             if ((*accuratehead > endloop) && (*accuratehead < startloop)) {
                 *accuratehead = (direction >= 0) ? startloop : endloop;
-                handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                        *accuratehead, recordhead, direction, recordfade,
                                        recfadeflag, snrfade, 1, 0);
             } else if (directionorig >= 0) {
-                handle_forward_wrap_boundary(accuratehead, maxloop, minloop, setloopsize,
+                kh_process_forward_wrap_boundary(accuratehead, maxloop, minloop, setloopsize,
                                            record, globalramp, frames, b, pchans, recordhead,
                                            direction, recordfade, recfadeflag, snrfade);
             } else {
-                handle_reverse_wrap_boundary(accuratehead, frames, maxloop, setloopsize,
+                kh_process_reverse_wrap_boundary(accuratehead, frames, maxloop, setloopsize,
                                            record, globalramp, b, pchans, recordhead,
                                            direction, recordfade, recfadeflag, snrfade);
             }
@@ -460,7 +622,7 @@ static inline void handle_loop_boundary(
             // Not wrapflag
             if ((*accuratehead > endloop) || (*accuratehead < startloop)) {
                 *accuratehead = (direction >= 0) ? startloop : endloop;
-                handle_recording_cleanup(record, globalramp, frames, b, pchans,
+                kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
                                        *accuratehead, recordhead, direction, recordfade,
                                        recfadeflag, snrfade, 1, 0);
             }
@@ -469,28 +631,28 @@ static inline void handle_loop_boundary(
 }
 
 // Helper function to perform playback interpolation
-static inline double perform_playback_interpolation(
+static inline double kh_perform_playback_interpolation(
     double frac, float *b, long interp0, long interp1, 
     long interp2, long interp3, long pchans, 
     interp_type_t interp, t_bool record)
 {
     if (record) {
         // If recording, use linear interpolation
-        return linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+        return kh_linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
     } else {
         // Otherwise use specified interpolation type
         if (interp == 1) {
-            return cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+            return kh_cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
         } else if (interp == 2) {
-            return spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+            return kh_spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
         } else {
-            return linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+            return kh_linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
         }
     }
 }
 
 // Helper function to handle playfade state machine logic
-static inline void handle_playfade_state(
+static inline void kh_process_playfade_state(
     char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag, 
     t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record)
 {
@@ -517,7 +679,7 @@ static inline void handle_playfade_state(
 }
 
 // Helper function to handle loop initialization and calculation
-static inline void handle_loop_initialization(
+static inline void kh_process_loop_initialization(
     t_bool triginit, char recendmark, char directionorig, 
     long *maxloop, long minloop, long maxhead, long frames, 
     double selstart, double selection, double *accuratehead, 
@@ -542,7 +704,7 @@ static inline void handle_loop_initialization(
                 }
                 if (direction < 0) {
                     if (globalramp)
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
+                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
                 }
             } else {
                 *maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
@@ -557,11 +719,11 @@ static inline void handle_loop_initialization(
                 *accuratehead = *endloop;
                 if (direction > 0) {
                     if (globalramp)
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
+                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
                 }
             }
             if (globalramp)
-                ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
+                kh_ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
             *snrfade = 0.0;
             *append = *alternateflag = 0;
             *recendmark_ptr = 0;
@@ -573,7 +735,7 @@ static inline void handle_loop_initialization(
                 *accuratehead = (direction < 0) ? *endloop : *startloop;
             if (record) {
                 if (globalramp) {
-                    ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
+                    kh_ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
                 }
             }
             *snrfade = 0.0;
@@ -582,7 +744,7 @@ static inline void handle_loop_initialization(
 }
 
 // Helper function to handle initial loop creation state
-static inline void handle_initial_loop_creation(
+static inline void kh_process_initial_loop_creation(
     t_bool go, t_bool triginit, t_bool jumpflag, t_bool append, 
     double jumphead, long maxhead, long frames, char directionorig, 
     double *accuratehead, double *snrfade, t_bool record, 
@@ -600,7 +762,7 @@ static inline void handle_initial_loop_creation(
                 if (record) {
                     *accuratehead = maxhead;
                     if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
                         *recordfade = 0;
                     }
                     *alternateflag = 1;
@@ -609,7 +771,7 @@ static inline void handle_initial_loop_creation(
                 } else {
                     *accuratehead = (directionorig >= 0) ? 0.0 : (frames - 1);
                     if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
                     }
                 }
             } else {  // regular start
@@ -618,14 +780,14 @@ static inline void handle_initial_loop_creation(
                 *accuratehead = (directionorig >= 0) ? 0.0 : (frames - 1);
                 if (record) {
                     if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
                         *recordfade = 0;
                     }
                     *recfadeflag = 0;
                     *recordhead = -1;
                 } else {
                     if (globalramp) {
-                        ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
                     }
                 }
             }
@@ -635,7 +797,7 @@ static inline void handle_initial_loop_creation(
 
 // interpolation points
 // Helper to wrap index for forward or reverse looping
-static inline long wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
+static inline long kh_wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
     if (directionorig >= 0) {
         // Forward: wrap between 0 and maxloop
         if (idx < 0)
@@ -656,14 +818,14 @@ static inline long wrap_index(long idx, char directionorig, long maxloop, long f
     }
 }
 
-static inline void interp_index(
+static inline void kh_interp_index(
     long playhead, long *indx0, long *indx1, long *indx2, long *indx3,
     char direction, char directionorig, long maxloop, long framesm1)
 {
-    *indx0 = wrap_index(playhead - direction, directionorig, maxloop, framesm1);
+    *indx0 = kh_wrap_index(playhead - direction, directionorig, maxloop, framesm1);
     *indx1 = playhead;
-    *indx2 = wrap_index(playhead + direction, directionorig, maxloop, framesm1);
-    *indx3 = wrap_index(*indx2 + direction, directionorig, maxloop, framesm1);
+    *indx2 = kh_wrap_index(playhead + direction, directionorig, maxloop, framesm1);
+    *indx3 = kh_wrap_index(*indx2 + direction, directionorig, maxloop, framesm1);
 }
 
 
@@ -918,7 +1080,7 @@ void karma_buf_setup(t_karma* x, t_symbol* s)
         x->directionorig = 0;
         x->maxhead = x->playhead = 0.0;
         x->recordhead = -1;
-        init_buffer_properties(x, buf);
+        kh_init_buffer_properties(x, buf);
         x->bvsnorm = x->vsnorm * (x->bsr / (double)x->bframes);
         x->minloop = x->startloop = 0.0;
         x->maxloop = x->endloop = (x->bframes - 1); // * ((x->bchans > 1) ?
@@ -965,7 +1127,7 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
 // called by 'karma_buf_change_internal' & 'karma_setloop_internal'
 // pete says: i know this proof-of-concept branching is horrible, will rewrite
 // soon...
-void karma_buf_values_internal(
+void kh_buf_values_internal(
     t_karma* x, double templow, double temphigh, long loop_points_flag, t_bool caller)
 {
     //  t_symbol *loop_points_sym = 0;                      // dev
@@ -981,7 +1143,7 @@ void karma_buf_values_internal(
     if (caller) { // only if called from 'karma_buf_change_internal()'
         buf = buffer_ref_getobject(x->buf);
 
-        init_buffer_properties(x, buf);
+        kh_init_buffer_properties(x, buf);
 
         caller_sym = gensym("set");
     } else {
@@ -1114,7 +1276,7 @@ void karma_buf_values_internal(
 // karma_buf_change method defered
 // pete says: i know this proof-of-concept branching is horrible, will rewrite
 // soon...
-void karma_buf_change_internal(
+void kh_buf_change_internal(
     t_karma* x, t_symbol* s, short argc, t_atom* argv) // " set ..... "
 {
     t_bool    callerid = true; // identify caller of 'karma_buf_values_internal()'
@@ -1127,7 +1289,7 @@ void karma_buf_change_internal(
     bufname = atom_getsym(argv + 0);
 
     // Validate buffer and set up references
-    if (!karma_validate_buffer(x, bufname)) {
+    if (!kh_validate_buffer(x, bufname)) {
         return;
     }
 
@@ -1137,7 +1299,7 @@ void karma_buf_change_internal(
     x->recordhead = -1;
 
     // Process arguments to extract loop points and settings
-    karma_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
+    kh_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
 
     // Check for early return flag from ps_originalloop handling
     if (templow == -999.0) {
@@ -1145,7 +1307,7 @@ void karma_buf_change_internal(
     }
 
     // Apply the buffer values
-    karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
+    kh_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
 }
 
 void karma_buf_change(t_karma* x, t_symbol* s, short ac, t_atom* av) // " set ..... "
@@ -1199,14 +1361,14 @@ void karma_buf_change(t_karma* x, t_symbol* s, short ac, t_atom* av) // " set ..
         }
     }
 
-    defer(x, (method)karma_buf_change_internal, s, ac, store_av); // main method
-    // karma_buf_change_internal(x, s, ac, store_av);
+    defer(x, (method)kh_buf_change_internal, s, ac, store_av); // main method
+    // kh_buf_change_internal(x, s, ac, store_av);
 }
 
 // karma_setloop method (defered?)
 // pete says: i know this proof-of-concept branching is horrible, will rewrite
 // soon...
-void karma_setloop_internal(
+void kh_setloop_internal(
     t_karma* x, t_symbol* s, short argc, t_atom* argv) // " setloop ..... "
 {
     t_bool    callerid = false; // identify caller of 'karma_buf_values_internal()'
@@ -1347,7 +1509,7 @@ void karma_setloop_internal(
         // dev
         post("%s message:", s->s_name);
     */
-    karma_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
+    kh_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
 }
 
 void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop ..... "
@@ -1367,7 +1529,7 @@ void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop .
                                                 // ...go straight to calling function with
                                                 // initial loop variables...
                                                 //              if (!x->recordinit)
-                karma_buf_values_internal(
+                kh_buf_values_internal(
                     x, initiallow, initialhigh, points_flag, callerid);
                 //              else
                 //                  return;
@@ -1379,11 +1541,11 @@ void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop .
                 return;
             }
         } else { // ...else pass onto pre-calling parsing function...
-            karma_setloop_internal(x, s, ac, av);
+            kh_setloop_internal(x, s, ac, av);
         }
     } else { // ...
-             //  defer(x, (method)karma_setloop_internal, s, ac, av);
-        karma_setloop_internal(x, s, ac, av);
+             //  defer(x, (method)kh_setloop_internal, s, ac, av);
+        kh_setloop_internal(x, s, ac, av);
     }
 }
 
@@ -1398,7 +1560,7 @@ void karma_resetloop(t_karma* x) // " resetloop " message only
     double initialhigh = (double)x->initialhigh; // ...
 
     //  if (!x->recordinit)
-    karma_buf_values_internal(x, initiallow, initialhigh, points_flag, callerid);
+    kh_buf_values_internal(x, initiallow, initialhigh, points_flag, callerid);
     //  else
     //      return;
 }
@@ -1846,7 +2008,7 @@ void karma_dsp64(
 /////////////////////////////////// PERFORM ROUTINES
 
 // Helper function: Process state control switch statement
-void karma_process_state_control(
+void kh_process_state_control(
     t_karma* x, control_state_t* statecontrol, t_bool* record, t_bool* go,
     t_bool* triginit, t_bool* loopdetermine, long* recordfade, char* recfadeflag,
     long* playfade, char* playfadeflag, char* recendmark)
@@ -1931,7 +2093,7 @@ void karma_process_state_control(
 }
 
 // Helper function: Initialize performance variables
-void karma_initialize_perform_vars(
+void kh_initialize_perform_vars(
     t_karma* x, double* accuratehead, long* playhead, double* maxhead, t_bool* wrapflag,
     double* jumphead, double* pokesteps, double* snrfade, double* globalramp,
     double* snrramp, switchramp_type_t* snrtype, interp_type_t* interp,
@@ -1955,14 +2117,14 @@ void karma_initialize_perform_vars(
 }
 
 // Helper function: Handle direction changes
-void karma_handle_direction_change(
+void kh_process_direction_change(
     char directionprev, char direction, t_bool record, double globalramp, long frames,
     float* b, long pchans, long recordhead, long* recordfade, char* recfadeflag,
     double* snrfade)
 {
     if (directionprev != direction) {
         if (record && globalramp) {
-            ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
+            kh_ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
             *recordfade = *recfadeflag = 0;
             // recordhead = -1; // Note: this should be handled by caller
         }
@@ -1971,14 +2133,14 @@ void karma_handle_direction_change(
 }
 
 // Helper function: Handle record on/off transitions
-void karma_handle_record_toggle(
+void kh_process_record_toggle(
     t_bool record, t_bool recordprev, double globalramp, long frames, float* b,
     long pchans, long* recordhead, long* recordfade, char* recfadeflag,
     double accuratehead, char direction, double speed, double* snrfade, t_bool* dirt)
 {
     if ((record - recordprev) < 0) { // samp @record-off
         if (globalramp)
-            ease_bufoff(frames - 1, b, pchans, *recordhead, direction, globalramp);
+            kh_ease_bufoff(frames - 1, b, pchans, *recordhead, direction, globalramp);
         *recordhead = -1;
         *dirt = 1;
     } else if ((record - recordprev) > 0) { // samp @record-on
@@ -1986,7 +2148,8 @@ void karma_handle_record_toggle(
         if (speed < 1.0)
             *snrfade = 0.0;
         if (globalramp)
-            ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
+            kh_ease_bufoff(
+                frames - 1, b, pchans, accuratehead, -direction, globalramp);
     }
 }
 
@@ -2067,13 +2230,13 @@ void karma_mono_perform(
     playfade = x->playfade;
 
     // Initialize performance variables using helper function
-    karma_initialize_perform_vars(
+    kh_initialize_perform_vars(
         x, &accuratehead, &playhead, &maxhead, &wrapflag, &jumphead, &pokesteps, &snrfade,
         &globalramp, &snrramp, &snrtype, &interp, &speedfloat, &o1prev, &o1dif,
         &writeval1);
 
     // Process state control using helper function
-    karma_process_state_control(
+    kh_process_state_control(
         x, &statecontrol, &record, &go, &triginit, &loopdetermine, &recordfade,
         &recfadeflag, &playfade, &playfadeflag, &recendmark);
 
@@ -2088,7 +2251,7 @@ void karma_mono_perform(
         direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
 
         // Handle direction changes using helper function
-        karma_handle_direction_change(
+        kh_process_direction_change(
             directionprev, direction, record, globalramp, frames, b, pchans, recordhead,
             &recordfade, &recfadeflag, &snrfade);
         if (directionprev != direction && record && globalramp) {
@@ -2096,7 +2259,7 @@ void karma_mono_perform(
         }
 
         // Handle record on/off transitions using helper function
-        karma_handle_record_toggle(
+        kh_process_record_toggle(
             record, recordprev, globalramp, frames, b, pchans, &recordhead, &recordfade,
             &recfadeflag, accuratehead, direction, speed, &snrfade, &dirt);
         recordprev = record;
@@ -2113,7 +2276,7 @@ void karma_mono_perform(
                 */
 
                 // Handle loop initialization and calculation
-                handle_loop_initialization(
+                kh_process_loop_initialization(
                     triginit, recendmark, directionorig, &maxloop, minloop, maxhead,
                     frames, selstart, selection, &accuratehead, &startloop, &endloop,
                     &setloopsize, &wrapflag, direction, globalramp, b, pchans, recordhead,
@@ -2130,7 +2293,7 @@ void karma_mono_perform(
                     setloopsize = maxloop - minloop;
 
                     // Handle loop boundary wrapping and jumping
-                    handle_loop_boundary(
+                    kh_process_loop_boundary(
                         &accuratehead, speed, srscale, direction, directionorig, frames,
                         maxloop, minloop, setloopsize, startloop, endloop, wrapflag,
                         jumpflag, record, globalramp, b, pchans, &recordhead, &recordfade,
@@ -2159,12 +2322,12 @@ void karma_mono_perform(
                 } else {
                     frac = 0.0;
                 } // setloopsize  // ??
-                interp_index(
+                kh_interp_index(
                     playhead, &interp0, &interp1, &interp2, &interp3, direction,
                     directionorig, maxloop, frames - 1); // samp-indices
 
                 // Perform playback interpolation
-                osamp1 = perform_playback_interpolation(
+                osamp1 = kh_perform_playback_interpolation(
                     frac, b, interp0, interp1, interp2, interp3, pchans, interp, record);
 
                 if (globalramp) { // "Switch and Ramp" -
@@ -2173,24 +2336,24 @@ void karma_mono_perform(
                         if (snrfade == 0.0) {
                             o1dif = o1prev - osamp1;
                         }
-                        osamp1 += ease_switchramp(
+                        osamp1 += kh_ease_switchramp(
                             o1dif, snrfade, snrtype); // <- easing-curv options
                                                       // implemented by raja
                         snrfade += 1 / snrramp;
                     } // "Switch and Ramp" end
 
                     if (playfade < globalramp) { // realtime ramps for play on/off
-                        osamp1 = ease_record(
+                        osamp1 = kh_ease_record(
                             osamp1, (playfadeflag > 0), globalramp, playfade);
                         playfade++;
                         if (playfade >= globalramp) {
-                            handle_playfade_state(
+                            kh_process_playfade_state(
                                 &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
                                 &playfade, &snrfade, record);
                         }
                     }
                 } else {
-                    handle_playfade_state(
+                    kh_process_playfade_state(
                         &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
                         &playfade, &snrfade, record);
                 }
@@ -2199,7 +2362,7 @@ void karma_mono_perform(
                 osamp1 = 0.0;
             }
 
-            calculate_sync_output(
+            kh_calculate_sync_output(
                 osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop,
                 maxloop, directionorig, frames, setloopsize);
 
@@ -2217,18 +2380,18 @@ void karma_mono_perform(
             */
             if (record) {
                 if ((recordfade < globalramp) && (globalramp > 0.0))
-                    recin1 = ease_record(
+                    recin1 = kh_ease_record(
                         recin1 + (((double)b[playhead * pchans]) * overdubamp),
                         recfadeflag, globalramp, recordfade);
                 else
                     recin1 += ((double)b[playhead * pchans]) * overdubamp;
 
-                karma_handle_ipoke_recording(
+                kh_process_ipoke_recording(
                     b, pchans, playhead, &recordhead, recin1, overdubamp, globalramp,
                     recordfade, recfadeflag, &pokesteps, &writeval1, &dirt);
             } // ~ipoke end
 
-            karma_handle_recording_fade(
+            kh_process_recording_fade(
                 globalramp, &recordfade, &recfadeflag, &record, &triginit, &jumpflag);
             directionprev = direction;
 
@@ -2238,12 +2401,12 @@ void karma_mono_perform(
             if (go) {
                 if (triginit) {
                     if (jumpflag) {
-                        karma_handle_jump_logic(
+                        kh_process_jump_logic(
                             jumphead, maxhead, frames, directionorig, &accuratehead,
                             &jumpflag, &snrfade, record, b, pchans, &recordhead,
                             direction, globalramp, &recordfade, &recfadeflag, &triginit);
                     } else if (append) { // append
-                        handle_initial_loop_creation(
+                        kh_process_initial_loop_creation(
                             go, triginit, jumpflag, append, jumphead, maxhead, frames,
                             directionorig, &accuratehead, &snrfade, record, globalramp, b,
                             pchans, &recordhead, direction, &recordfade, &recfadeflag,
@@ -2262,7 +2425,7 @@ void karma_mono_perform(
                     }
                 } else {
                 apned:
-                    handle_initial_loop_boundary_constraints(
+                    kh_process_initial_loop_boundary_constraints(
                         &accuratehead, speed, srscale, direction, directionorig, frames,
                         maxloop, minloop, append, &record, globalramp, b, pchans,
                         &recordhead, &recfadeflag, &recordfade, &recendmark, &triginit,
@@ -2334,7 +2497,7 @@ void karma_mono_perform(
             }
 
             osamp1 = 0.0;
-            calculate_sync_output(
+            kh_calculate_sync_output(
                 osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop,
                 maxloop, directionorig, frames, setloopsize);
 
@@ -2344,13 +2507,13 @@ void karma_mono_perform(
             // length)
             if (record) {
                 if ((recordfade < globalramp) && (globalramp > 0.0))
-                    recin1 = ease_record(
+                    recin1 = kh_ease_record(
                         recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag,
                         globalramp, recordfade);
                 else
                     recin1 += ((double)b[playhead * pchans]) * overdubamp;
 
-                handle_initial_loop_ipoke_recording(
+                kh_process_initial_loop_ipoke_recording(
                     b, pchans, &recordhead, playhead, recin1, &pokesteps, &writeval1,
                     direction, directionorig, maxhead, frames); // ~ipoke end
                 if (globalramp) // realtime ramps for record on/off
@@ -2358,7 +2521,7 @@ void karma_mono_perform(
                     if (recordfade < globalramp) {
                         recordfade++;
                         if ((recfadeflag) && (recordfade >= globalramp)) {
-                            handle_recording_fade_completion(
+                            kh_process_recording_fade_completion(
                                 recfadeflag, &recendmark, &record, &triginit, &jumpflag,
                                 &loopdetermine, &recordfade, directionorig, &maxloop,
                                 maxhead, frames);
@@ -2367,7 +2530,7 @@ void karma_mono_perform(
                     }
                 } else {
                     if (recfadeflag) {
-                        handle_recording_fade_completion(
+                        kh_process_recording_fade_completion(
                             recfadeflag, &recendmark, &record, &triginit, &jumpflag,
                             &loopdetermine, &recordfade, directionorig, &maxloop, maxhead,
                             frames);
@@ -2449,7 +2612,7 @@ zero:
 
 // Helper functions for karma_buf_change_internal refactoring
 
-t_bool karma_validate_buffer(t_karma* x, t_symbol* bufname)
+static inline t_bool kh_validate_buffer(t_karma* x, t_symbol* bufname)
 {
     t_buffer_obj* buf_temp;
 
@@ -2490,7 +2653,8 @@ t_bool karma_validate_buffer(t_karma* x, t_symbol* bufname)
     return true;
 }
 
-void karma_parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_flag)
+static inline void
+kh_parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_flag)
 {
     if (loop_points_sym == ps_dummy) {
         *loop_points_flag = 2;
@@ -2511,7 +2675,7 @@ void karma_parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_fl
     }
 }
 
-void karma_parse_numeric_arg(t_atom* arg, double* value)
+static inline void kh_parse_numeric_arg(t_atom* arg, double* value)
 {
     if (atom_gettype(arg) == A_FLOAT) {
         *value = atom_getfloat(arg);
@@ -2520,7 +2684,7 @@ void karma_parse_numeric_arg(t_atom* arg, double* value)
     }
 }
 
-void karma_process_argc_args(
+static inline void kh_process_argc_args(
     t_karma* x, t_symbol* s, short argc, t_atom* argv, double* templow, double* temphigh,
     long* loop_points_flag)
 {
@@ -2536,7 +2700,7 @@ void karma_process_argc_args(
     if (argc >= 4) {
         if (atom_gettype(argv + 3) == A_SYM) {
             loop_points_sym = atom_getsym(argv + 3);
-            karma_parse_loop_points_sym(loop_points_sym, loop_points_flag);
+            kh_parse_loop_points_sym(loop_points_sym, loop_points_flag);
         } else if (atom_gettype(argv + 3) == A_LONG) {
             *loop_points_flag = atom_getlong(argv + 3);
         } else if (atom_gettype(argv + 3) == A_FLOAT) {
@@ -2555,14 +2719,14 @@ void karma_process_argc_args(
     // Process argument 3 (index 2) - high value or loop points type
     if (argc >= 3) {
         if (atom_gettype(argv + 2) == A_FLOAT || atom_gettype(argv + 2) == A_LONG) {
-            karma_parse_numeric_arg(argv + 2, temphigh);
+            kh_parse_numeric_arg(argv + 2, temphigh);
             if (*temphigh < 0.) {
                 object_warn(
                     (t_object*)x, "loop maximum cannot be less than 0., resetting");
             }
         } else if (atom_gettype(argv + 2) == A_SYM && argc < 4) {
             loop_points_sym = atom_getsym(argv + 2);
-            karma_parse_loop_points_sym(loop_points_sym, loop_points_flag);
+            kh_parse_loop_points_sym(loop_points_sym, loop_points_flag);
         } else {
             object_warn(
                 (t_object*)x,
@@ -2577,10 +2741,10 @@ void karma_process_argc_args(
         if (atom_gettype(argv + 1) == A_FLOAT || atom_gettype(argv + 1) == A_LONG) {
             if (*temphigh < 0.) {
                 temphightemp = *temphigh;
-                karma_parse_numeric_arg(argv + 1, temphigh);
+                kh_parse_numeric_arg(argv + 1, temphigh);
                 *templow = temphightemp;
             } else {
-                karma_parse_numeric_arg(argv + 1, templow);
+                kh_parse_numeric_arg(argv + 1, templow);
                 if (*templow < 0.) {
                     object_warn(
                         (t_object*)x,
@@ -2629,7 +2793,7 @@ void karma_process_argc_args(
 
 // Helper functions for further karma_mono_perform refactoring
 
-void karma_handle_ipoke_recording(
+void kh_process_ipoke_recording(
     float* b, long pchans, long playhead, long* recordhead, double recin1,
     double overdubamp, double globalramp, long recordfade, char recfadeflag,
     double* pokesteps, double* writeval1, t_bool* dirt)
@@ -2672,7 +2836,7 @@ void karma_handle_ipoke_recording(
     *dirt = 1;
 }
 
-void karma_handle_recording_fade(
+static inline void kh_process_recording_fade(
     double globalramp, long* recordfade, char* recfadeflag, t_bool* record,
     t_bool* triginit, char* jumpflag)
 {
@@ -2705,7 +2869,7 @@ void karma_handle_recording_fade(
     }
 }
 
-void karma_handle_jump_logic(
+static inline void kh_process_jump_logic(
     double jumphead, double maxhead, long frames, char directionorig,
     double* accuratehead, char* jumpflag, double* snrfade, t_bool record, float* b,
     long pchans, long* recordhead, char direction, double globalramp, long* recordfade,
@@ -2721,7 +2885,7 @@ void karma_handle_jump_logic(
         *snrfade = 0.0;
         if (record) {
             if (globalramp) {
-                ease_bufon(
+                kh_ease_bufon(
                     frames - 1, b, pchans, *accuratehead, *recordhead, direction,
                     globalramp);
                 *recordfade = 0;
@@ -2733,7 +2897,7 @@ void karma_handle_jump_logic(
     }
 }
 
-void handle_initial_loop_ipoke_recording(
+static inline void kh_process_initial_loop_ipoke_recording(
     float* b, long pchans, long* recordhead, long playhead, double recin1,
     double* pokesteps, double* writeval1, char direction, char directionorig,
     long maxhead, long frames)
@@ -2767,7 +2931,7 @@ void handle_initial_loop_ipoke_recording(
                             *writeval1 -= coeff1;
                             b[i * pchans] = *writeval1;
                         }
-                        apply_ipoke_interpolation(
+                        kh_apply_ipoke_interpolation(
                             b, pchans, maxhead, playhead, writeval1, coeff1, -1);
                     } else {
                         coeff1 = (recin1 - *writeval1) / recplaydif;
@@ -2824,7 +2988,7 @@ void handle_initial_loop_ipoke_recording(
                             *writeval1 += coeff1;
                             b[i * pchans] = *writeval1;
                         }
-                        apply_ipoke_interpolation(
+                        kh_apply_ipoke_interpolation(
                             b, pchans, maxhead, playhead, writeval1, coeff1, 1);
                     } else {
                         coeff1 = (recin1 - *writeval1) / recplaydif;
@@ -2854,7 +3018,7 @@ void handle_initial_loop_ipoke_recording(
     }
 }
 
-void handle_initial_loop_boundary_constraints(
+static inline void kh_process_initial_loop_boundary_constraints(
     double* accuratehead, double speed, double srscale, char direction,
     char directionorig, long frames, long maxloop, long minloop, t_bool append,
     t_bool* record, double globalramp, float* b, long pchans, long* recordhead,
@@ -2879,7 +3043,7 @@ void handle_initial_loop_boundary_constraints(
             *record = append;
             if (*record) {
                 if (globalramp) {
-                    ease_bufoff(
+                    kh_ease_bufoff(
                         frames - 1, b, pchans, (frames - 1), -direction,
                         globalramp); // maxloop ??
                     *recordhead = -1;
@@ -2894,7 +3058,7 @@ void handle_initial_loop_boundary_constraints(
             *record = append;
             if (*record) {
                 if (globalramp) {
-                    ease_bufoff(
+                    kh_ease_bufoff(
                         frames - 1, b, pchans, minloop, -direction,
                         globalramp); // 0.0  // ??
                     *recordhead = -1;
@@ -2914,7 +3078,7 @@ void handle_initial_loop_boundary_constraints(
         if (*accuratehead < 0.0) {
             *accuratehead = *maxhead + *accuratehead;
             if (globalramp) {
-                ease_bufoff(
+                kh_ease_bufoff(
                     frames - 1, b, pchans, minloop, -direction, globalramp); // 0.0  // ??
                 *recordhead = -1;
                 *recfadeflag = *recordfade = 0;
@@ -2924,7 +3088,7 @@ void handle_initial_loop_boundary_constraints(
         if (*accuratehead > (frames - 1)) {
             *accuratehead = *maxhead + (*accuratehead - (frames - 1));
             if (globalramp) {
-                ease_bufoff(
+                kh_ease_bufoff(
                     frames - 1, b, pchans, (frames - 1), -direction,
                     globalramp); // maxloop ??
                 *recordhead = -1;
@@ -2934,7 +3098,7 @@ void handle_initial_loop_boundary_constraints(
     }
 }
 
-double karma_process_audio_interpolation(
+static inline double kh_process_audio_interpolation(
     float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record)
 {
     long   playhead = (long)accuratehead;

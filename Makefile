@@ -65,10 +65,10 @@ cpd:
 	@pmd cpd --minimum-tokens 50 --language cpp source/projects/karma_tilde/karma\~.c
 
 cflow:
-	@uv run cflow2dot -i source/projects/karma_tilde/karma\~.c -f pdf -o $(CFLOW)/karma_cflow
+	@uv run cflow2dot -i source/projects/karma_tilde/karma\~.c -f pdf -f svg -o $(CFLOW)/karma_cflow
 	@rm -f $(CFLOW)/*.dot
 
-	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i source/projects/karma_tilde/karma\~.c -f pdf -o $(CFLOW)/karma_cflow_filter
+	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i source/projects/karma_tilde/karma\~.c -f pdf -f svg -o $(CFLOW)/karma_cflow_filter
 	@rm -f $(CFLOW)/*.dot
 
 clean:

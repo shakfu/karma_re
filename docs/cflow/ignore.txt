@@ -1,5 +1,8 @@
 
 class_new
+class_addmethod
+class_dspinit
+class_register
 
 dsp_free
 dsp_setup
@@ -15,12 +18,8 @@ CLASS_ATTR_FILTER_MIN
 CLASS_ATTR_FILTER_CLIP
 CLASS_ATTR_ENUMINDEX
 
-class_dspinit
-class_register
-
 strncpy_zero
 snprintf_zero
-
 
 atom_setsym
 atom_getsym
@@ -29,13 +28,14 @@ atom_getlong
 atom_gettype
 atom_setfloat
 atom_getfloat
-object_error
+
 gensym
 
 object_free
 object_method
 object_alloc
 object_warn
+object_error
 
 defer
 
@@ -54,14 +54,9 @@ buffer_getmillisamplerate
 buffer_getsamplerate
 buffer_getchannelcount
 
-class_addmethod
-
-fabs
-
 sys_getsr
 sys_getblksize
 sys_getdspstate
-listout
 
 clock_new
 clock_delay
@@ -71,13 +66,16 @@ proxy_getinlet
 
 outlet_new
 outlet_list
+listout
 
 CLAMP
 MAX
 MIN
+
+fabs
 pow
 cos
-
+sin
 trunc
 
 
