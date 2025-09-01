@@ -1,0 +1,230 @@
+diff --git a/source/projects/karma_tilde/karma~.c b/source/projects/karma_tilde/karma~.c
+index 606852e..f2c5dd0 100644
+--- a/source/projects/karma_tilde/karma~.c
++++ b/source/projects/karma_tilde/karma~.c
+@@ -186,22 +186,11 @@ static inline void kh_process_playfade_state(
+     t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record);
+ 
+ static inline void kh_process_loop_initialization(
+-    t_bool triginit, char recendmark, char directionorig, 
+-    long *maxloop, long minloop, long maxhead, long frames, 
+-    double selstart, double selection, double *accuratehead, 
+-    long *startloop, long *endloop, long *setloopsize, 
+-    t_bool *wrapflag, char direction, double globalramp, 
+-    float *b, long pchans, long recordhead, t_bool record, 
+-    t_bool jumpflag, double jumphead, double *snrfade, 
+-    t_bool *append, t_bool *alternateflag, char *recendmark_ptr);
++    t_karma *x, float *b, double *accuratehead, char direction, 
++    long *setloopsize, t_bool *wrapflag, char *recendmark_ptr);
+ 
+ static inline void kh_process_initial_loop_creation(
+-    t_bool go, t_bool triginit, t_bool jumpflag, t_bool append, 
+-    double jumphead, long maxhead, long frames, char directionorig, 
+-    double *accuratehead, double *snrfade, t_bool record, 
+-    double globalramp, float *b, long pchans, long *recordhead, 
+-    char direction, long *recordfade, char *recfadeflag, 
+-    t_bool *alternateflag, t_bool *triginit_ptr);
++    t_karma *x, float *b, double *accuratehead, char direction, t_bool *triginit_ptr);
+ 
+ static inline long kh_wrap_index(long idx, char directionorig, long maxloop, long framesm1);
+ 
+@@ -645,114 +634,103 @@ static inline void kh_process_playfade_state(
+ 
+ // Helper function to handle loop initialization and calculation
+ static inline void kh_process_loop_initialization(
+-    t_bool triginit, char recendmark, char directionorig, 
+-    long *maxloop, long minloop, long maxhead, long frames, 
+-    double selstart, double selection, double *accuratehead, 
+-    long *startloop, long *endloop, long *setloopsize, 
+-    t_bool *wrapflag, char direction, double globalramp, 
+-    float *b, long pchans, long recordhead, t_bool record, 
+-    t_bool jumpflag, double jumphead, double *snrfade, 
+-    t_bool *append, t_bool *alternateflag, char *recendmark_ptr)
++    t_karma *x, float *b, double *accuratehead, char direction, 
++    long *setloopsize, t_bool *wrapflag, char *recendmark_ptr)
+ {
+-    if (triginit) {
+-        if (recendmark) {  // calculate end of loop
+-            if (directionorig >= 0) {
+-                *maxloop = CLAMP(maxhead, 4096, frames - 1);
+-                *setloopsize = *maxloop - minloop;
+-                *accuratehead = *startloop = minloop + (selstart * (*setloopsize));
+-                *endloop = *startloop + (selection * (*setloopsize));
+-                if (*endloop > *maxloop) {
+-                    *endloop = *endloop - ((*setloopsize) + 1);
++    if (x->state.triginit) {
++        if (x->state.recendmark) {  // calculate end of loop
++            if (x->state.directionorig >= 0) {
++                x->loop.maxloop = CLAMP(x->timing.maxhead, 4096, x->buffer.bframes - 1);
++                *setloopsize = x->loop.maxloop - x->loop.minloop;
++                *accuratehead = x->loop.startloop = x->loop.minloop + (x->timing.selstart * (*setloopsize));
++                x->loop.endloop = x->loop.startloop + (x->timing.selection * (*setloopsize));
++                if (x->loop.endloop > x->loop.maxloop) {
++                    x->loop.endloop = x->loop.endloop - ((*setloopsize) + 1);
+                     *wrapflag = 1;
+                 } else {
+                     *wrapflag = 0;
+                 }
+                 if (direction < 0) {
+-                    if (globalramp)
+-                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
++                    if (x->fade.globalramp)
++                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
+                 }
+             } else {
+-                *maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
+-                *setloopsize = *maxloop - minloop;
+-                *startloop = ((frames - 1) - (*setloopsize)) + (selstart * (*setloopsize));
+-                if (*endloop > (frames - 1)) {
+-                    *endloop = ((frames - 1) - (*setloopsize)) + (*endloop - frames);
++                x->loop.maxloop = CLAMP((x->buffer.bframes - 1) - x->timing.maxhead, 4096, x->buffer.bframes - 1);
++                *setloopsize = x->loop.maxloop - x->loop.minloop;
++                x->loop.startloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->timing.selstart * (*setloopsize));
++                if (x->loop.endloop > (x->buffer.bframes - 1)) {
++                    x->loop.endloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->loop.endloop - x->buffer.bframes);
+                     *wrapflag = 1;
+                 } else {
+                     *wrapflag = 0;
+                 }
+-                *accuratehead = *endloop;
++                *accuratehead = x->loop.endloop;
+                 if (direction > 0) {
+-                    if (globalramp)
+-                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
++                    if (x->fade.globalramp)
++                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
+                 }
+             }
+-            if (globalramp)
+-                kh_ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
+-            *snrfade = 0.0;
+-            *append = *alternateflag = 0;
++            if (x->fade.globalramp)
++                kh_ease_bufoff(x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.maxhead, -direction, x->fade.globalramp);
++            x->fade.snrfade = 0.0;
++            x->state.append = x->state.alternateflag = 0;
+             *recendmark_ptr = 0;
+         } else {    // jump / play (inside 'window')
+-            *setloopsize = *maxloop - minloop;
+-            if (jumpflag)
+-                *accuratehead = (directionorig >= 0) ? ((jumphead * (*setloopsize)) + minloop) : (((frames - 1) - (*maxloop)) + (jumphead * (*setloopsize)));
++            *setloopsize = x->loop.maxloop - x->loop.minloop;
++            if (x->state.jumpflag)
++                *accuratehead = (x->state.directionorig >= 0) ? ((x->timing.jumphead * (*setloopsize)) + x->loop.minloop) : (((x->buffer.bframes - 1) - (x->loop.maxloop)) + (x->timing.jumphead * (*setloopsize)));
+             else
+-                *accuratehead = (direction < 0) ? *endloop : *startloop;
+-            if (record) {
+-                if (globalramp) {
+-                    kh_ease_bufon(frames - 1, b, pchans, *accuratehead, recordhead, direction, globalramp);
++                *accuratehead = (direction < 0) ? x->loop.endloop : x->loop.startloop;
++            if (x->state.record) {
++                if (x->fade.globalramp) {
++                    kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
+                 }
+             }
+-            *snrfade = 0.0;
++            x->fade.snrfade = 0.0;
+         }
+     }
+ }
+ 
+ // Helper function to handle initial loop creation state
+ static inline void kh_process_initial_loop_creation(
+-    t_bool go, t_bool triginit, t_bool jumpflag, t_bool append, 
+-    double jumphead, long maxhead, long frames, char directionorig, 
+-    double *accuratehead, double *snrfade, t_bool record, 
+-    double globalramp, float *b, long pchans, long *recordhead, 
+-    char direction, long *recordfade, char *recfadeflag, 
+-    t_bool *alternateflag, t_bool *triginit_ptr)
++    t_karma *x, float *b, double *accuratehead, char direction, t_bool *triginit_ptr)
+ {
+-    if (go) {
+-        if (triginit) {
+-            if (jumpflag) {
++    if (x->state.go) {
++        if (x->state.triginit) {
++            if (x->state.jumpflag) {
+                 // Jump logic handled by existing karma_handle_jump_logic function
+-            } else if (append) {
+-                *snrfade = 0.0;
++            } else if (x->state.append) {
++                x->fade.snrfade = 0.0;
+                 *triginit_ptr = 0;
+-                if (record) {
+-                    *accuratehead = maxhead;
+-                    if (globalramp) {
+-                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+-                        *recordfade = 0;
++                if (x->state.record) {
++                    *accuratehead = x->timing.maxhead;
++                    if (x->fade.globalramp) {
++                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
++                        x->fade.recordfade = 0;
+                     }
+-                    *alternateflag = 1;
+-                    *recfadeflag = 0;
+-                    *recordhead = -1;
++                    x->state.alternateflag = 1;
++                    x->fade.recfadeflag = 0;
++                    x->timing.recordhead = -1;
+                 } else {
+-                    *accuratehead = (directionorig >= 0) ? 0.0 : (frames - 1);
+-                    if (globalramp) {
+-                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
++                    *accuratehead = (x->state.directionorig >= 0) ? 0.0 : (x->buffer.bframes - 1);
++                    if (x->fade.globalramp) {
++                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
+                     }
+                 }
+             } else {  // regular start
+-                *snrfade = 0.0;
++                x->fade.snrfade = 0.0;
+                 *triginit_ptr = 0;
+-                *accuratehead = (directionorig >= 0) ? 0.0 : (frames - 1);
+-                if (record) {
+-                    if (globalramp) {
+-                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
+-                        *recordfade = 0;
++                *accuratehead = (x->state.directionorig >= 0) ? 0.0 : (x->buffer.bframes - 1);
++                if (x->state.record) {
++                    if (x->fade.globalramp) {
++                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
++                        x->fade.recordfade = 0;
+                     }
+-                    *recfadeflag = 0;
+-                    *recordhead = -1;
++                    x->fade.recfadeflag = 0;
++                    x->timing.recordhead = -1;
+                 } else {
+-                    if (globalramp) {
+-                        kh_ease_bufon(frames - 1, b, pchans, *accuratehead, *recordhead, direction, globalramp);
++                    if (x->fade.globalramp) {
++                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
+                     }
+                 }
+             }
+@@ -2242,11 +2220,7 @@ void karma_mono_perform(
+ 
+                 // Handle loop initialization and calculation
+                 kh_process_loop_initialization(
+-                    triginit, recendmark, directionorig, &maxloop, minloop, maxhead,
+-                    frames, selstart, selection, &accuratehead, &startloop, &endloop,
+-                    &setloopsize, &wrapflag, direction, globalramp, b, pchans, recordhead,
+-                    record, jumpflag, jumphead, &snrfade, &append, &alternateflag,
+-                    &recendmark);
++                    x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark);
+                 if (triginit) {
+                     recordhead = -1;
+                     triginit = 0;
+@@ -2369,10 +2343,7 @@ void karma_mono_perform(
+                             direction, globalramp, &recordfade, &recfadeflag, &triginit);
+                     } else if (append) { // append
+                         kh_process_initial_loop_creation(
+-                            go, triginit, jumpflag, append, jumphead, maxhead, frames,
+-                            directionorig, &accuratehead, &snrfade, record, globalramp, b,
+-                            pchans, &recordhead, direction, &recordfade, &recfadeflag,
+-                            &alternateflag, &triginit);
++                            x, b, &accuratehead, direction, &triginit);
+                         if (!record)
+                             goto apned;
+                     } else { // trigger start of initial loop creation
