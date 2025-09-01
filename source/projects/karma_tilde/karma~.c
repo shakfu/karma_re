@@ -77,6 +77,30 @@ struct t_karma {
         char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
     } fade;
 
+    // State and control group
+    struct {
+        control_state_t statecontrol;   // master looper state control (not 'human state')
+        human_state_t statehuman;       // master looper state human logic (not 'statecontrol')
+        char    recendmark;     // the flag to show that the loop is done recording and to mark the ending of it
+        char    directionorig;  // original direction loop was recorded ("if loop was initially recorded in reverse started from end-of-buffer etc")
+        char    directionprev;  // previous direction ("marker for directional changes to place where fades need to happen during recording")
+        t_bool  stopallowed;    // flag, 'false' if already stopped once (& init)
+        t_bool  go;             // execute play ??
+        t_bool  record;         // record flag
+        t_bool  recordprev;     // previous record flag
+        t_bool  loopdetermine;  // flag: "...for when object is in a recording stage that actually determines loop duration..."
+        t_bool  alternateflag;  // ("rectoo") ARGH ?? !! flag that selects between different types of engagement for statecontrol ??
+        t_bool  append;         // append flag ??
+        t_bool  triginit;       // flag to show trigger start of ...stuff... (?)
+        t_bool  wrapflag;       // flag to show if a window selection wraps around the buffer~ end / beginning
+        t_bool  jumpflag;       // whether jump is 'on' or 'off' ("flag to block jumps from coming too soon" ??)
+        t_bool  recordinit;     // initial record (raja: "...determine whether to apply the 'record' message to initial loop recording or not")
+        t_bool  initinit;       // initial initialise (raja: "...hack i used to determine whether DSP is turned on for the very first time or not")
+        t_bool  initskip;       // is initialising = 0
+        t_bool  buf_modified;   // buffer has been modified bool
+        t_bool  clockgo;        // activate clock (for list outlet)
+    } state;
+
     double  speedfloat;     // store speed inlet value if float (not signal)
 
     long    syncoutlet;     // make sync outlet ? (object attribute @syncout, instantiation time only)
@@ -88,30 +112,6 @@ struct t_karma {
     long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
-
-    control_state_t statecontrol;   // master looper state control (not 'human state')
-    human_state_t statehuman;       // master looper state human logic (not 'statecontrol')
-
-    char    recendmark;     // the flag to show that the loop is done recording and to mark the ending of it
-    char    directionorig;  // original direction loop was recorded ("if loop was initially recorded in reverse started from end-of-buffer etc")
-    char    directionprev;  // previous direction ("marker for directional changes to place where fades need to happen during recording")
-    
-    t_bool  stopallowed;    // flag, 'false' if already stopped once (& init)
-    t_bool  go;             // execute play ??
-    t_bool  record;         // record flag
-    t_bool  recordprev;     // previous record flag
-    t_bool  loopdetermine;  // flag: "...for when object is in a recording stage that actually determines loop duration..."
-    t_bool  alternateflag;  // ("rectoo") ARGH ?? !! flag that selects between different types of engagement for statecontrol ??
-    t_bool  append;         // append flag ??
-    t_bool  triginit;       // flag to show trigger start of ...stuff... (?)
-    t_bool  wrapflag;       // flag to show if a window selection wraps around the buffer~ end / beginning
-    t_bool  jumpflag;       // whether jump is 'on' or 'off' ("flag to block jumps from coming too soon" ??)
-
-    t_bool  recordinit;     // initial record (raja: "...determine whether to apply the 'record' message to initial loop recording or not")
-    t_bool  initinit;       // initial initialise (raja: "...hack i used to determine whether DSP is turned on for the very first time or not")
-    t_bool  initskip;       // is initialising = 0
-    t_bool  buf_modified;   // buffer has been modified bool
-    t_bool  clockgo;        // activate clock (for list outlet)
 
     void    *messout;       // list outlet pointer
     void    *tclock;        // list timer pointer
@@ -921,7 +921,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
     long      attrstart = attr_args_offset(argc, argv);
 
     x = (t_karma*)object_alloc(karma_class);
-    x->initskip = 0;
+    x->state.initskip = 0;
 
     // should do better argument checks here
     if (attrstart && argv) {
@@ -981,24 +981,24 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->audio.interpflag = INTERP_CUBIC;
         x->fade.playfadeflag = 0;
         x->fade.recfadeflag = 0;
-        x->recordinit = 0;
-        x->initinit = 0;
-        x->append = 0;
-        x->jumpflag = 0;
-        x->statecontrol = CONTROL_STATE_ZERO;
-        x->statehuman = HUMAN_STATE_STOP;
-        x->stopallowed = 0;
-        x->go = 0;
-        x->triginit = 0;
-        x->directionprev = 0;
-        x->directionorig = 0;
-        x->recordprev = 0;
-        x->record = 0;
-        x->alternateflag = 0;
-        x->recendmark = 0;
+        x->state.recordinit = 0;
+        x->state.initinit = 0;
+        x->state.append = 0;
+        x->state.jumpflag = 0;
+        x->state.statecontrol = CONTROL_STATE_ZERO;
+        x->state.statehuman = HUMAN_STATE_STOP;
+        x->state.stopallowed = 0;
+        x->state.go = 0;
+        x->state.triginit = 0;
+        x->state.directionprev = 0;
+        x->state.directionorig = 0;
+        x->state.recordprev = 0;
+        x->state.record = 0;
+        x->state.alternateflag = 0;
+        x->state.recendmark = 0;
         x->audio.pokesteps = 0;
-        x->wrapflag = 0;
-        x->loopdetermine = 0;
+        x->state.wrapflag = 0;
+        x->state.loopdetermine = 0;
         x->audio.writeval1 = x->audio.writeval2 = x->audio.writeval3 = x->audio.writeval4 = 0;
         x->timing.maxhead = 0.0;
         x->timing.playhead = 0.0;
@@ -1053,7 +1053,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
             outlet_new(x, "signal");     // first: audio output 1
         }
 
-        x->initskip = 1;
+        x->state.initskip = 1;
         x->k_ob.z_misc |= Z_NO_INPLACE;
     }
 
@@ -1063,7 +1063,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
 
 void karma_free(t_karma* x)
 {
-    if (x->initskip) {
+    if (x->state.initskip) {
         dsp_free((t_pxobject*)x);
 
         object_free(x->buffer.buf);
@@ -1095,7 +1095,7 @@ void karma_buf_setup(t_karma* x, t_symbol* s)
         // s->s_name);
     } else {
         //  if (buf != NULL) {
-        x->directionorig = 0;
+        x->state.directionorig = 0;
         x->timing.maxhead = x->timing.playhead = 0.0;
         x->timing.recordhead = -1;
         kh_init_buffer_properties(x, buf);
@@ -1312,7 +1312,7 @@ void kh_buf_change_internal(
     }
 
     // Reset player state
-    x->directionorig = 0;
+    x->state.directionorig = 0;
     x->timing.maxhead = x->timing.playhead = 0.0;
     x->timing.recordhead = -1;
 
@@ -1546,7 +1546,7 @@ void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop .
             if (reset_sym == ps_originalloop) { // if "reset" message argument...
                                                 // ...go straight to calling function with
                                                 // initial loop variables...
-                                                //              if (!x->recordinit)
+                                                //              if (!x->state.recordinit)
                 kh_buf_values_internal(
                     x, initiallow, initialhigh, points_flag, callerid);
                 //              else
@@ -1577,7 +1577,7 @@ void karma_resetloop(t_karma* x) // " resetloop " message only
                                                  // as long...
     double initialhigh = (double)x->loop.initialhigh; // ...
 
-    //  if (!x->recordinit)
+    //  if (!x->state.recordinit)
     kh_buf_values_internal(x, initiallow, initialhigh, points_flag, callerid);
     //  else
     //      return;
@@ -1615,13 +1615,13 @@ void karma_clock_list(t_karma* x)
                                                                    // report ??
                                                                    // !!
 
-        t_bool directflag = x->directionorig < 0; // !! reverse = 1, forward = 0
-        t_bool record = x->record; // pointless (and actually is 'record' or
+        t_bool directflag = x->state.directionorig < 0; // !! reverse = 1, forward = 0
+        t_bool record = x->state.record; // pointless (and actually is 'record' or
                                    // 'overdub')
-        t_bool go = x->go;         // pointless (and actually this is on whenever
+        t_bool go = x->state.go;         // pointless (and actually this is on whenever
                                    // transport is,...
                                    // ...not stricly just 'play')
-        human_state_t statehuman = x->statehuman;
+        human_state_t statehuman = x->state.statehuman;
         //  ((playhead-(frames-maxloop))/setloopsize) :
         //  ((playhead-startloop)/setloopsize)  // ??
         normalisedposition = CLAMP(
@@ -1738,10 +1738,10 @@ void karma_select_start(
 
     // for dealing with selection-out-of-bounds logic:
 
-    if (!x->loopdetermine) {
+    if (!x->state.loopdetermine) {
         setloopsize = x->loop.maxloop - x->loop.minloop;
 
-        if (x->directionorig < 0) // if originally in reverse
+        if (x->state.directionorig < 0) // if originally in reverse
         {
             bfrmaesminusone = x->buffer.bframes - 1;
 
@@ -1753,9 +1753,9 @@ void karma_select_start(
             if (x->loop.endloop > bfrmaesminusone) {
                 x->loop.endloop = (bfrmaesminusone - setloopsize)
                     + (x->loop.endloop - bfrmaesminusone);
-                x->wrapflag = 1;
+                x->state.wrapflag = 1;
             } else {
-                x->wrapflag = 0; // selection-in-bounds
+                x->state.wrapflag = 0; // selection-in-bounds
             }
 
         } else { // if originally forwards
@@ -1767,9 +1767,9 @@ void karma_select_start(
 
             if (x->loop.endloop > x->loop.maxloop) {
                 x->loop.endloop = x->loop.endloop - setloopsize;
-                x->wrapflag = 1;
+                x->state.wrapflag = 1;
             } else {
-                x->wrapflag = 0; // selection-in-bounds
+                x->state.wrapflag = 0; // selection-in-bounds
             }
         }
     }
@@ -1786,29 +1786,29 @@ void karma_select_size(t_karma* x, double duration) // duration = "window" float
 
     // for dealing with selection-out-of-bounds logic:
 
-    if (!x->loopdetermine) {
+    if (!x->state.loopdetermine) {
         setloopsize = x->loop.maxloop - x->loop.minloop;
         x->loop.endloop = x->loop.startloop + (x->timing.selection * setloopsize);
 
-        if (x->directionorig < 0) // if originally in reverse
+        if (x->state.directionorig < 0) // if originally in reverse
         {
             bfrmaesminusone = x->buffer.bframes - 1;
 
             if (x->loop.endloop > bfrmaesminusone) {
                 x->loop.endloop = (bfrmaesminusone - setloopsize)
                     + (x->loop.endloop - bfrmaesminusone);
-                x->wrapflag = 1;
+                x->state.wrapflag = 1;
             } else {
-                x->wrapflag = 0; // selection-in-bounds
+                x->state.wrapflag = 0; // selection-in-bounds
             }
 
         } else { // if originally forwards
 
             if (x->loop.endloop > x->loop.maxloop) {
                 x->loop.endloop = x->loop.endloop - setloopsize;
-                x->wrapflag = 1;
+                x->state.wrapflag = 1;
             } else {
-                x->wrapflag = 0; // selection-in-bounds
+                x->state.wrapflag = 0; // selection-in-bounds
             }
         }
     }
@@ -1816,33 +1816,33 @@ void karma_select_size(t_karma* x, double duration) // duration = "window" float
 
 void karma_stop(t_karma* x)
 {
-    if (x->initinit) {
-        if (x->stopallowed) {
-            x->statecontrol = x->alternateflag ? CONTROL_STATE_STOP_ALT
+    if (x->state.initinit) {
+        if (x->state.stopallowed) {
+            x->state.statecontrol = x->state.alternateflag ? CONTROL_STATE_STOP_ALT
                                                : CONTROL_STATE_STOP_REGULAR;
-            x->append = 0;
-            x->statehuman = HUMAN_STATE_STOP;
-            x->stopallowed = 0;
+            x->state.append = 0;
+            x->state.statehuman = HUMAN_STATE_STOP;
+            x->state.stopallowed = 0;
         }
     }
 }
 
 void karma_play(t_karma* x)
 {
-    if ((!x->go) && (x->append)) {
-        x->statecontrol = CONTROL_STATE_APPEND;
+    if ((!x->state.go) && (x->state.append)) {
+        x->state.statecontrol = CONTROL_STATE_APPEND;
 
         x->fade.snrfade = 0.0; // !! should disable ??
-    } else if ((x->record) || (x->append)) {
-        x->statecontrol = x->alternateflag ? CONTROL_STATE_PLAY_ALT
+    } else if ((x->state.record) || (x->state.append)) {
+        x->state.statecontrol = x->state.alternateflag ? CONTROL_STATE_PLAY_ALT
                                            : CONTROL_STATE_RECORD_OFF;
     } else {
-        x->statecontrol = CONTROL_STATE_PLAY_ON;
+        x->state.statecontrol = CONTROL_STATE_PLAY_ON;
     }
 
-    x->go = 1;
-    x->statehuman = HUMAN_STATE_PLAY;
-    x->stopallowed = 1;
+    x->state.go = 1;
+    x->state.statehuman = HUMAN_STATE_PLAY;
+    x->state.stopallowed = 1;
 }
 
 
@@ -1866,14 +1866,14 @@ void karma_record(t_karma* x)
 {
     t_buffer_obj*   buf = buffer_ref_getobject(x->buffer.buf);
     control_state_t sc = CONTROL_STATE_ZERO;
-    human_state_t   sh = x->statehuman;
-    t_bool          record = x->record;
-    t_bool          go = x->go;
-    t_bool          altflag = x->alternateflag;
-    t_bool          append = x->append;
-    t_bool          init = x->recordinit;
+    human_state_t   sh = x->state.statehuman;
+    t_bool          record = x->state.record;
+    t_bool          go = x->state.go;
+    t_bool          altflag = x->state.alternateflag;
+    t_bool          append = x->state.append;
+    t_bool          init = x->state.recordinit;
 
-    x->stopallowed = 1;
+    x->state.stopallowed = 1;
 
     if (record) {
         if (altflag) {
@@ -1910,22 +1910,22 @@ void karma_record(t_karma* x)
         sh = HUMAN_STATE_OVERDUB;
     }
 
-    x->go = 1;
-    x->recordinit = init;
-    x->statecontrol = sc;
-    x->statehuman = sh;
+    x->state.go = 1;
+    x->state.recordinit = init;
+    x->state.statecontrol = sc;
+    x->state.statehuman = sh;
 }
 
 
 void karma_append(t_karma* x)
 {
-    if (x->recordinit) {
-        if ((!x->append) && (!x->loopdetermine)) {
-            x->append = 1;
+    if (x->state.recordinit) {
+        if ((!x->state.append) && (!x->state.loopdetermine)) {
+            x->state.append = 1;
             x->loop.maxloop = (x->buffer.bframes - 1);
-            x->statecontrol = CONTROL_STATE_APPEND;
-            x->statehuman = HUMAN_STATE_APPEND;
-            x->stopallowed = 1;
+            x->state.statecontrol = CONTROL_STATE_APPEND;
+            x->state.statehuman = HUMAN_STATE_APPEND;
+            x->state.stopallowed = 1;
         } else {
             object_error(
                 (t_object*)x,
@@ -1948,16 +1948,16 @@ void karma_overdub(t_karma* x, double amplitude)
 
 void karma_jump(t_karma* x, double jumpposition)
 {
-    if (x->initinit) {
-        if (!((x->loopdetermine) && (!x->record))) {
-            x->statecontrol = CONTROL_STATE_JUMP;
+    if (x->state.initinit) {
+        if (!((x->state.loopdetermine) && (!x->state.record))) {
+            x->state.statecontrol = CONTROL_STATE_JUMP;
             x->timing.jumphead = CLAMP(
                 jumpposition, 0.,
                 1.); // for now phase only, TODO - ms & samples
-            //          x->statehuman = HUMAN_STATE_PLAY;           // no -
+            //          x->state.statehuman = HUMAN_STATE_PLAY;           // no -
             //          'jump' is whatever 'statehuman' currently is (most
             //          likely 'play')
-            x->stopallowed = 1;
+            x->state.stopallowed = 1;
         }
     }
 }
@@ -1967,7 +1967,7 @@ t_max_err karma_syncout_set(t_karma* x, t_object* attr, long argc, t_atom* argv)
 {
     long syncout = atom_getlong(argv);
 
-    if (!x->initskip) {
+    if (!x->state.initskip) {
         if (argc && argv) {
             x->syncoutlet = CLAMP(syncout, 0, 1);
         }
@@ -1991,7 +1991,7 @@ t_max_err karma_buf_notify(t_karma* x, t_symbol* s, t_symbol* msg, void* sndr, v
     //  if (bufnamecheck == x->bufname) {   // check...
     if (buffer_ref_exists(x->buffer.buf)) { // this hack does not really work...
         if (msg == ps_buffer_modified)
-            x->buf_modified = true;                          // set flag
+            x->state.buf_modified = true;                          // set flag
         return buffer_ref_notify(x->buffer.buf, s, msg, sndr, dat); // ...return
     } else {
         return MAX_ERR_NONE;
@@ -2004,17 +2004,17 @@ void karma_dsp64(
     x->timing.ssr = srate;
     x->timing.vs = (double)vecount;
     x->timing.vsnorm = (double)vecount / srate; // x->vs / x->ssr;
-    x->clockgo = 1;
+    x->state.clockgo = 1;
 
     if (x->buffer.bufname != 0) {
-        if (!x->initinit)
+        if (!x->state.initinit)
             karma_buf_setup(x, x->buffer.bufname); // does 'x->timing.bvsnorm'    // !! this
                                             // should be defered ??
         x->speedconnect = count[1];         // speed is 2nd inlet
         object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
-        if (!x->initinit) {
+        if (!x->state.initinit) {
             karma_select_size(x, 1.);
-            x->initinit = 1;
+            x->state.initinit = 1;
         } else {
             karma_select_size(x, x->timing.selection);
             karma_select_start(x, x->timing.selstart);
@@ -2031,7 +2031,7 @@ void kh_process_state_control(
     t_bool* triginit, t_bool* loopdetermine, long* recordfade, char* recfadeflag,
     long* playfade, char* playfadeflag, char* recendmark)
 {
-    t_bool* alternateflag = &x->alternateflag;
+    t_bool* alternateflag = &x->state.alternateflag;
     double* snrfade = &x->fade.snrfade;
 
     switch (*statecontrol) // "all-in-one 'switch' statement to catch and handle
@@ -2123,7 +2123,7 @@ void kh_initialize_perform_vars(
     *accuratehead = x->timing.playhead;
     *playhead = trunc(*accuratehead);
     *maxhead = x->timing.maxhead;
-    *wrapflag = x->wrapflag;
+    *wrapflag = x->state.wrapflag;
     *jumphead = x->timing.jumphead;
     *pokesteps = x->audio.pokesteps;
     *snrfade = x->fade.snrfade;
@@ -2205,42 +2205,42 @@ void karma_mono_perform(
     t_buffer_obj* buf = buffer_ref_getobject(x->buffer.buf);
     float*        b = buffer_locksamples(buf);
 
-    record = x->record;
-    recordprev = x->recordprev;
+    record = x->state.record;
+    recordprev = x->state.recordprev;
     dirt = 0;
     if (!b || x->k_ob.z_disabled)
         goto zero;
     if (record || recordprev)
         dirt = 1;
-    if (x->buf_modified) {
+    if (x->state.buf_modified) {
         karma_buf_modify(x, buf);
-        x->buf_modified = false;
+        x->state.buf_modified = false;
     }
 
-    go = x->go;
-    statecontrol = x->statecontrol;
+    go = x->state.go;
+    statecontrol = x->state.statecontrol;
     playfadeflag = x->fade.playfadeflag;
     recfadeflag = x->fade.recfadeflag;
     recordhead = x->timing.recordhead;
-    alternateflag = x->alternateflag;
+    alternateflag = x->state.alternateflag;
     pchans = x->buffer.bchans;
     srscale = x->timing.srscale;
     frames = x->buffer.bframes;
-    triginit = x->triginit;
-    jumpflag = x->jumpflag;
-    append = x->append;
-    directionorig = x->directionorig;
-    directionprev = x->directionprev;
+    triginit = x->state.triginit;
+    jumpflag = x->state.jumpflag;
+    append = x->state.append;
+    directionorig = x->state.directionorig;
+    directionprev = x->state.directionprev;
     minloop = x->loop.minloop;
     maxloop = x->loop.maxloop;
     initiallow = x->loop.initiallow;
     initialhigh = x->loop.initialhigh;
     selection = x->timing.selection;
-    loopdetermine = x->loopdetermine;
+    loopdetermine = x->state.loopdetermine;
     startloop = x->loop.startloop;
     selstart = x->timing.selstart;
     endloop = x->loop.endloop;
-    recendmark = x->recendmark;
+    recendmark = x->state.recendmark;
     overdubamp = x->audio.overdubprev;
     overdubprev = x->audio.overdubamp;
     ovdbdif = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
@@ -2572,12 +2572,12 @@ void karma_mono_perform(
     }
     buffer_unlocksamples(buf);
 
-    if (x->clockgo) {              // list-outlet stuff
+    if (x->state.clockgo) {              // list-outlet stuff
         clock_delay(x->tclock, 0); // why ??
-        x->clockgo = 0;
+        x->state.clockgo = 0;
     } else if ((!go) || (x->reportlist <= 0)) { // why '!go' ??
         clock_unset(x->tclock);
-        x->clockgo = 1;
+        x->state.clockgo = 1;
     }
 
     // Update all state variables back to the main object
@@ -2586,20 +2586,20 @@ void karma_mono_perform(
     x->audio.writeval1 = writeval1;
     x->timing.maxhead = maxhead;
     x->audio.pokesteps = pokesteps;
-    x->wrapflag = wrapflag;
+    x->state.wrapflag = wrapflag;
     x->fade.snrfade = snrfade;
     x->timing.playhead = accuratehead;
-    x->directionorig = directionorig;
-    x->directionprev = directionprev;
+    x->state.directionorig = directionorig;
+    x->state.directionprev = directionprev;
     x->timing.recordhead = recordhead;
-    x->alternateflag = alternateflag;
+    x->state.alternateflag = alternateflag;
     x->fade.recordfade = recordfade;
-    x->triginit = triginit;
-    x->jumpflag = jumpflag;
-    x->go = go;
-    x->record = record;
-    x->recordprev = recordprev;
-    x->statecontrol = statecontrol;
+    x->state.triginit = triginit;
+    x->state.jumpflag = jumpflag;
+    x->state.go = go;
+    x->state.record = record;
+    x->state.recordprev = recordprev;
+    x->state.statecontrol = statecontrol;
     x->fade.playfadeflag = playfadeflag;
     x->fade.recfadeflag = recfadeflag;
     x->fade.playfade = playfade;
@@ -2607,12 +2607,12 @@ void karma_mono_perform(
     x->loop.maxloop = maxloop;
     x->loop.initiallow = initiallow;
     x->loop.initialhigh = initialhigh;
-    x->loopdetermine = loopdetermine;
+    x->state.loopdetermine = loopdetermine;
     x->loop.startloop = startloop;
     x->loop.endloop = endloop;
     x->audio.overdubprev = overdubamp;
-    x->recendmark = recendmark;
-    x->append = append;
+    x->state.recendmark = recendmark;
+    x->state.append = append;
 
     return;
 
