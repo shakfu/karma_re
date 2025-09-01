@@ -6,18 +6,22 @@ This project analyzes and refactors Rodrigo Constanzo's & raja's & pete's [karma
 
 The refactoring strategy employed several systematic approaches:
 
-### 1. **Function Extraction**
+### 1. Function Extraction
+
 Large, deeply nested functions were broken down by extracting logical blocks into separate helper functions. This reduces nesting depth and improves code readability by giving meaningful names to complex operations.
 
-### 2. **Type Safety Improvements**
+### 2. Type Safety Improvements
+
 - Replaced `t_ptr_int` with standard `long` type (59 occurrences)
 - Added comprehensive enum definitions for better type safety and code clarity
 
-### 3. **Code Elimination**
-- Removed unused stereo and quad perform functions 
+### 3. Code Elimination
+
+- Removed unused stereo and quad perform functions
 - Eliminated dead code branches identified through static analysis
 
-### 4. **Structural Improvements**
+### 4. Structural Improvements
+
 - Added meaningful enums for state management
 - Improved variable naming and organization
 - Enhanced code documentation through function extraction
@@ -57,12 +61,12 @@ Results:
 - Total line count reduced from 1185 to 813 lines (372 line reduction)
 ```
 
-
 ## Completed Refactoring Work
 
-### ✅ **Major Function Refactoring**
+### Major Function Refactoring
 
 #### `karma_buf_change_internal` - **ELIMINATED from complexity list**
+
 - **Before**: 94 complexity score, 7 levels of nesting  
 - **After**: Completely eliminated from high-complexity functions
 - **Method**: Extracted 4 helper functions:
@@ -72,6 +76,7 @@ Results:
   - `karma_process_argc_args()` - Systematic argument processing
 
 #### `karma_record` - **ELIMINATED from complexity list**
+
 - **Before**: 54 complexity score, 9 levels of nesting
 - **After**: Completely eliminated from high-complexity functions  
 - **Method**: Extracted 2 helper functions:
@@ -79,6 +84,7 @@ Results:
   - `karma_clear_buffer_channels()` - Buffer clearing operations
 
 #### `karma_mono_perform` - **SIGNIFICANTLY IMPROVED**
+
 - **Before**: 3397 complexity score, 975 lines, 11 levels of nesting
 - **After**: 3291 complexity score, 813 lines (95 point reduction)
 - **Method**: Extracted 7 helper functions:
@@ -90,7 +96,8 @@ Results:
   - `karma_handle_recording_fade()` - Recording fade transitions
   - `karma_handle_jump_logic()` - Jump positioning logic
 
-### ✅ **Type Safety & Code Quality**
+### Type Safety & Code Quality
+
 - [x] Converted `t_ptr_int` to standard `long` type (59 occurrences)
 - [x] Added comprehensive enum definitions:
   - `control_state_t` - 12 distinct control states for clearer state management
@@ -99,12 +106,14 @@ Results:
   - `interp_type_t` - 3 interpolation methods
 - [x] Improved type safety throughout codebase
 
-### ✅ **Code Elimination & Optimization**
+### Code Elimination & Optimization
+
 - [x] Removed unused stereo and quad perform functions (reduced file from 8,822 to 2,752 lines)
 - [x] Analyzed with `clang-tidy` and eliminated inactive code branches
 - [x] Streamlined build process and dependencies
 
-### ✅ **Build & Compatibility**
+### Build & Compatibility
+
 - [x] Maintained 100% compatibility with original Max/MSP plugin interface
 - [x] Clean compilation with no errors (only harmless type conversion warnings)
 - [x] Universal binary support (x86_64 + arm64)
@@ -112,7 +121,7 @@ Results:
 
 - [x] `karma_mono_perform`
 
-**Refactoring Results**
+#### Refactoring Results
 
 Major complexity reduction achieved:
 
@@ -122,7 +131,7 @@ Major complexity reduction achieved:
 - Lines of code: Function is now much more readable with clear helper
 function calls
 
-**Functions Extracted**
+#### Functions Extracted
 
 1. `handle_initial_loop_ipoke_recording` - Extracted the complex iPoke
 recording interpolation logic (113 lines) that handles directional
@@ -136,7 +145,7 @@ wraparound logic
 management by consolidating 33+ variable assignments into a single helper
 call
 
-**Impact Summary**
+#### Impact Summary
 
 - ~90% complexity reduction in the main perform function (3397 → 352)
 - Improved readability: The main function now shows clear high-level flow
@@ -152,5 +161,3 @@ unmaintainable monster with complexity score 3397 into a much more
 manageable function, making it significantly easier to understand and
 maintain going forward. This addresses the main TODO item and
 significantly improves the codebase's maintainability.
-
-
