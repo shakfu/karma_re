@@ -35,16 +35,6 @@ struct t_karma {
         //  double  selmultiply;    // store loop length multiplier amount from 'multiply' method -->> TODO
     } timing;
 
-    // Loop boundary group
-    struct {
-        long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
-        long   maxloop;         // the overall loop end recorded so far (in samples), is static value
-        long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
-        long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
-        long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
-        long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
-    } loop;
-
     // Audio processing group
     struct {
         double  o1prev;         // previous sample value of "osamp1" etc...
@@ -65,7 +55,28 @@ struct t_karma {
         long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
     } audio;
 
-    double  snrfade;        // fade counter for switch n ramp, normalised 0..1 ??
+    // Loop boundary group
+    struct {
+        long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
+        long   maxloop;         // the overall loop end recorded so far (in samples), is static value
+        long   startloop;       // playback start position (in buffer~) in samples, changes depending on loop points and selection logic
+        long   endloop;         // playback end position (in buffer~) in samples, changes depending on loop points and selection logic
+        long   initiallow;      // store inital loop low point after 'initial loop' (default -1 causes default phase 0)
+        long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
+    } loop;
+
+    // Fade and ramp control group
+    struct {
+        long   recordfade;      // fade counter for recording in samples
+        long   playfade;        // fade counter for playback in samples
+        long   globalramp;      // general fade time (for both recording and playback) in samples
+        long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
+        double  snrfade;        // fade counter for switch n ramp, normalised 0..1 ??
+        switchramp_type_t snrtype;    // switch n ramp curve option choice
+        char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
+        char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
+    } fade;
+
     double  speedfloat;     // store speed inlet value if float (not signal)
 
     long    syncoutlet;     // make sync outlet ? (object attribute @syncout, instantiation time only)
@@ -74,11 +85,6 @@ struct t_karma {
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
 
     long   recordhead;      // record head position in samples
-    long   recordfade;      // fade counter for recording in samples
-    long   playfade;        // fade counter for playback in samples
-    long   globalramp;      // general fade time (for both recording and playback) in samples
-    long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
-    switchramp_type_t snrtype;    // switch n ramp curve option choice
     long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
@@ -86,8 +92,6 @@ struct t_karma {
     control_state_t statecontrol;   // master looper state control (not 'human state')
     human_state_t statehuman;       // master looper state human logic (not 'statecontrol')
 
-    char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
-    char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
     char    recendmark;     // the flag to show that the loop is done recording and to mark the ending of it
     char    directionorig;  // original direction loop was recorded ("if loop was initially recorded in reverse started from end-of-buffer etc")
     char    directionprev;  // previous direction ("marker for directional changes to place where fades need to happen during recording")
@@ -874,15 +878,15 @@ void ext_main(void *r)
     CLASS_ATTR_FILTER_MIN(c, "report", 0);
     CLASS_ATTR_LABEL(c, "report", 0, "Report Time (ms) for data outlet");
     
-    CLASS_ATTR_LONG(c, "ramp", 0, t_karma, globalramp);         // !! change this to ms input !!    // !! change to "[something else]" ??
+    CLASS_ATTR_LONG(c, "ramp", 0, t_karma, fade.globalramp);         // !! change this to ms input !!    // !! change to "[something else]" ??
     CLASS_ATTR_FILTER_CLIP(c, "ramp", 0, 2048);
     CLASS_ATTR_LABEL(c, "ramp", 0, "Ramp Time (samples)");
     
-    CLASS_ATTR_LONG(c, "snramp", 0, t_karma, snrramp);          // !! change this to ms input !!    // !! change to "[something else]" ??
+    CLASS_ATTR_LONG(c, "snramp", 0, t_karma, fade.snrramp);          // !! change this to ms input !!    // !! change to "[something else]" ??
     CLASS_ATTR_FILTER_CLIP(c, "snramp", 0, 2048);
     CLASS_ATTR_LABEL(c, "snramp", 0, "Switch&Ramp Time (samples)");
     
-    CLASS_ATTR_LONG(c, "snrcurv", 0, t_karma, snrtype);         // !! change to "[something else]" ??
+    CLASS_ATTR_LONG(c, "snrcurv", 0, t_karma, fade.snrtype);         // !! change to "[something else]" ??
     CLASS_ATTR_FILTER_CLIP(c, "snrcurv", 0, 6);
     CLASS_ATTR_ENUMINDEX(c, "snrcurv", 0, "Linear Sine_In Cubic_In Cubic_Out Exp_In Exp_Out Exp_In_Out");
     CLASS_ATTR_LABEL(c, "snrcurv", 0, "Switch&Ramp Curve");
@@ -962,8 +966,8 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
 
         x->timing.recordhead = -1;
         x->reportlist = 50;                // ms
-        x->snrramp = x->globalramp = 256;  // samps...
-        x->playfade = x->recordfade = 257; // ...
+        x->fade.snrramp = x->fade.globalramp = 256;  // samps...
+        x->fade.playfade = x->fade.recordfade = 257; // ...
         x->timing.ssr = sys_getsr();
         x->timing.vs = sys_getblksize();
         x->timing.vsnorm = x->timing.vs / x->timing.ssr;
@@ -973,10 +977,10 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->speedfloat = 1.0;
         x->islooped = 1;
 
-        x->snrtype = SWITCHRAMP_SINE_IN;
+        x->fade.snrtype = SWITCHRAMP_SINE_IN;
         x->audio.interpflag = INTERP_CUBIC;
-        x->playfadeflag = 0;
-        x->recfadeflag = 0;
+        x->fade.playfadeflag = 0;
+        x->fade.recfadeflag = 0;
         x->recordinit = 0;
         x->initinit = 0;
         x->append = 0;
@@ -1002,7 +1006,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->loop.initialhigh = -1;
         x->timing.selstart = 0.0;
         x->timing.jumphead = 0.0;
-        x->snrfade = 0.0;
+        x->fade.snrfade = 0.0;
         x->audio.o1dif = x->audio.o2dif = x->audio.o3dif = x->audio.o4dif = 0.0;
         x->audio.o1prev = x->audio.o2prev = x->audio.o3prev = x->audio.o4prev = 0.0;
 
@@ -1828,7 +1832,7 @@ void karma_play(t_karma* x)
     if ((!x->go) && (x->append)) {
         x->statecontrol = CONTROL_STATE_APPEND;
 
-        x->snrfade = 0.0; // !! should disable ??
+        x->fade.snrfade = 0.0; // !! should disable ??
     } else if ((x->record) || (x->append)) {
         x->statecontrol = x->alternateflag ? CONTROL_STATE_PLAY_ALT
                                            : CONTROL_STATE_RECORD_OFF;
@@ -2028,7 +2032,7 @@ void kh_process_state_control(
     long* playfade, char* playfadeflag, char* recendmark)
 {
     t_bool* alternateflag = &x->alternateflag;
-    double* snrfade = &x->snrfade;
+    double* snrfade = &x->fade.snrfade;
 
     switch (*statecontrol) // "all-in-one 'switch' statement to catch and handle
                            // all(most) messages" - raja
@@ -2122,10 +2126,10 @@ void kh_initialize_perform_vars(
     *wrapflag = x->wrapflag;
     *jumphead = x->timing.jumphead;
     *pokesteps = x->audio.pokesteps;
-    *snrfade = x->snrfade;
-    *globalramp = (double)x->globalramp;
-    *snrramp = (double)x->snrramp;
-    *snrtype = x->snrtype;
+    *snrfade = x->fade.snrfade;
+    *globalramp = (double)x->fade.globalramp;
+    *snrramp = (double)x->fade.snrramp;
+    *snrtype = x->fade.snrtype;
     *interp = x->audio.interpflag;
     *speedfloat = x->speedfloat;
 }
@@ -2215,8 +2219,8 @@ void karma_mono_perform(
 
     go = x->go;
     statecontrol = x->statecontrol;
-    playfadeflag = x->playfadeflag;
-    recfadeflag = x->recfadeflag;
+    playfadeflag = x->fade.playfadeflag;
+    recfadeflag = x->fade.recfadeflag;
     recordhead = x->timing.recordhead;
     alternateflag = x->alternateflag;
     pchans = x->buffer.bchans;
@@ -2240,8 +2244,8 @@ void karma_mono_perform(
     overdubamp = x->audio.overdubprev;
     overdubprev = x->audio.overdubamp;
     ovdbdif = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
-    recordfade = x->recordfade;
-    playfade = x->playfade;
+    recordfade = x->fade.recordfade;
+    playfade = x->fade.playfade;
 
     // Initialize performance variables using helper function
     kh_initialize_perform_vars(
@@ -2583,22 +2587,22 @@ void karma_mono_perform(
     x->timing.maxhead = maxhead;
     x->audio.pokesteps = pokesteps;
     x->wrapflag = wrapflag;
-    x->snrfade = snrfade;
+    x->fade.snrfade = snrfade;
     x->timing.playhead = accuratehead;
     x->directionorig = directionorig;
     x->directionprev = directionprev;
     x->timing.recordhead = recordhead;
     x->alternateflag = alternateflag;
-    x->recordfade = recordfade;
+    x->fade.recordfade = recordfade;
     x->triginit = triginit;
     x->jumpflag = jumpflag;
     x->go = go;
     x->record = record;
     x->recordprev = recordprev;
     x->statecontrol = statecontrol;
-    x->playfadeflag = playfadeflag;
-    x->recfadeflag = recfadeflag;
-    x->playfade = playfade;
+    x->fade.playfadeflag = playfadeflag;
+    x->fade.recfadeflag = recfadeflag;
+    x->fade.playfade = playfade;
     x->loop.minloop = minloop;
     x->loop.maxloop = maxloop;
     x->loop.initiallow = initiallow;
