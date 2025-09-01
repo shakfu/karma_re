@@ -1,8 +1,10 @@
-# karma_re~ -- Refactoring Mono Karma~
+# karma_re~
 
-As I have used Rodrigo Constanzo's & raja's & pete's [karma~1.6](https://github.com/rconstanzo/karma) Max/MSP audio looper plugin in [another Max project](https://github.com/shakfu/groovin), I was curious enough about how it worked that I tried to read the c code of the external. 
+As I have used Rodrigo Constanzo's & raja's & pete's amazing [karma~1.6](https://github.com/rconstanzo/karma) Max/MSP audio looper external in [another Max project](https://github.com/shakfu/groovin), I was curious enough about how it worked that I tried to read the c code of the external. 
 
-I found it to be very complex and difficult to understand, so I started trying to do things to make it more understandable for me:
+I personally found the code to be very complex and difficult to understand, so I started to try to make it more understandable for me:
+
+- Drop stereo and quad perform functions and just focus on refactoring the mono perform function
 
 - Extract smaller functions from complex functions
 
@@ -10,15 +12,14 @@ I found it to be very complex and difficult to understand, so I started trying t
 
 - Use clang-format, clang-tidy, and other AI tools to help in the process
 
-- Drop stereo and quad perform functions and just focus on refactoring the mono perform function
-
-- Use code analysis tools like cflow to figure out the call graph
+- Use code analysis tools like cflow to figure out the overall call graph
 
 
 ## Status
 
-- This is still a work in progress but there are some graphs to illustrate addition of helper functions.
+- This is still a work in progress but the refactored mono version seemingly works ok. 
 
+Here are some graphs to illustrate the changes:
 
 
 ### karma~
