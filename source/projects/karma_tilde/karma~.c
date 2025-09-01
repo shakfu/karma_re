@@ -13,8 +13,10 @@ struct t_karma {
         t_symbol     *bufname_temp;  // ...
         long   bframes;         // number of buffer frames (number of floats long the buffer is for a single channel)
         long   bchans;          // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
-        double  bsr;            // buffer samplerate
-        double  bmsr;           // buffer samplerate in samples-per-millisecond
+        double bsr;             // buffer samplerate
+        double bmsr;            // buffer samplerate in samples-per-millisecond
+        long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
+        long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
     } buffer;
 
     // Timing and sample rate group
@@ -43,25 +45,27 @@ struct t_karma {
         long   initialhigh;     // store inital loop high point after 'initial loop' (default -1 causes default phase 1)
     } loop;
 
-    long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
-    long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
-
-    double  o1prev;         // previous sample value of "osamp1" etc...
-    double  o2prev;         // ...
-    double  o3prev;
-    double  o4prev;
-    double  o1dif;          // (o1dif = o1prev - osamp1) etc...
-    double  o2dif;          // ...
-    double  o3dif;
-    double  o4dif;
-    double  writeval1;      // values to be written into buffer~...
-    double  writeval2;      // ...after ipoke~ interpolation, overdub summing, etc...
-    double  writeval3;      // ...
-    double  writeval4;
+    // Audio processing group
+    struct {
+        double  o1prev;         // previous sample value of "osamp1" etc...
+        double  o2prev;         // ...
+        double  o3prev;
+        double  o4prev;
+        double  o1dif;          // (o1dif = o1prev - osamp1) etc...
+        double  o2dif;          // ...
+        double  o3dif;
+        double  o4dif;
+        double  writeval1;      // values to be written into buffer~...
+        double  writeval2;      // ...after ipoke~ interpolation, overdub summing, etc...
+        double  writeval3;      // ...
+        double  writeval4;
+        double  overdubamp;     // overdub amplitude 0..1 set by 'overdub $1' message sent to object
+        double  overdubprev;    // a 'current' overdub amount ("for smoothing overdub amp changes")
+        interp_type_t interpflag; // playback interpolation
+        long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
+    } audio;
 
     double  snrfade;        // fade counter for switch n ramp, normalised 0..1 ??
-    double  overdubamp;     // overdub amplitude 0..1 set by 'overdub $1' message sent to object
-    double  overdubprev;    // a 'current' overdub amount ("for smoothing overdub amp changes")
     double  speedfloat;     // store speed inlet value if float (not signal)
 
     long    syncoutlet;     // make sync outlet ? (object attribute @syncout, instantiation time only)
@@ -69,9 +73,7 @@ struct t_karma {
     long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
 
-    interp_type_t interpflag; // playback interpolation
     long   recordhead;      // record head position in samples
-    long   pokesteps;       // number of steps (samples) to keep track of in ipoke~ linear averaging scheme
     long   recordfade;      // fade counter for recording in samples
     long   playfade;        // fade counter for playback in samples
     long   globalramp;      // general fade time (for both recording and playback) in samples
@@ -483,7 +485,7 @@ static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
     x->buffer.bframes  = buffer_getframecount(buf);
     x->buffer.bmsr     = buffer_getmillisamplerate(buf);
     x->buffer.bsr      = buffer_getsamplerate(buf);
-    x->nchans   = (x->buffer.bchans < x->ochans) ? x->buffer.bchans : x->ochans;  // MIN
+    x->buffer.nchans   = (x->buffer.bchans < x->buffer.ochans) ? x->buffer.bchans : x->buffer.ochans;  // MIN
     x->timing.srscale  = x->buffer.bsr / x->timing.ssr;
 }
 
@@ -885,7 +887,7 @@ void ext_main(void *r)
     CLASS_ATTR_ENUMINDEX(c, "snrcurv", 0, "Linear Sine_In Cubic_In Cubic_Out Exp_In Exp_Out Exp_In_Out");
     CLASS_ATTR_LABEL(c, "snrcurv", 0, "Switch&Ramp Curve");
     
-    CLASS_ATTR_LONG(c, "interp", 0, t_karma, interpflag);       // !! change to "playinterp" ??
+    CLASS_ATTR_LONG(c, "interp", 0, t_karma, audio.interpflag);       // !! change to "playinterp" ??
     CLASS_ATTR_FILTER_CLIP(c, "interp", 0, 2);
     CLASS_ATTR_ENUMINDEX(c, "interp", 0, "Linear Cubic Spline");
     CLASS_ATTR_LABEL(c, "interp", 0, "Playback Interpolation");
@@ -966,13 +968,13 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->timing.vs = sys_getblksize();
         x->timing.vsnorm = x->timing.vs / x->timing.ssr;
 
-        x->overdubprev = 1.0;
-        x->overdubamp = 1.0;
+        x->audio.overdubprev = 1.0;
+        x->audio.overdubamp = 1.0;
         x->speedfloat = 1.0;
         x->islooped = 1;
 
         x->snrtype = SWITCHRAMP_SINE_IN;
-        x->interpflag = INTERP_CUBIC;
+        x->audio.interpflag = INTERP_CUBIC;
         x->playfadeflag = 0;
         x->recfadeflag = 0;
         x->recordinit = 0;
@@ -990,10 +992,10 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->record = 0;
         x->alternateflag = 0;
         x->recendmark = 0;
-        x->pokesteps = 0;
+        x->audio.pokesteps = 0;
         x->wrapflag = 0;
         x->loopdetermine = 0;
-        x->writeval1 = x->writeval2 = x->writeval3 = x->writeval4 = 0;
+        x->audio.writeval1 = x->audio.writeval2 = x->audio.writeval3 = x->audio.writeval4 = 0;
         x->timing.maxhead = 0.0;
         x->timing.playhead = 0.0;
         x->loop.initiallow = -1;
@@ -1001,8 +1003,8 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->timing.selstart = 0.0;
         x->timing.jumphead = 0.0;
         x->snrfade = 0.0;
-        x->o1dif = x->o2dif = x->o3dif = x->o4dif = 0.0;
-        x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
+        x->audio.o1dif = x->audio.o2dif = x->audio.o3dif = x->audio.o4dif = 0.0;
+        x->audio.o1prev = x->audio.o2prev = x->audio.o3prev = x->audio.o4prev = 0.0;
 
         if (bufname != 0)
             x->buffer.bufname = bufname; // !! setup is in 'karma_buf_setup()' called
@@ -1013,7 +1015,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
            declaration");
         */
 
-        x->ochans = chans;
+        x->buffer.ochans = chans;
         // @arg 1 @name num_chans @optional 1 @type int @digest Number of Audio
         // channels
         // @description Default = <b>1 (mono)</b> <br />
@@ -1121,7 +1123,7 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
             x->timing.srscale = modbsr / x->timing.ssr; // x->ssr / modbsr;
             x->buffer.bframes = modframes;
             x->buffer.bchans = modchans;
-            x->nchans = (modchans < x->ochans) ? modchans : x->ochans; // MIN
+            x->buffer.nchans = (modchans < x->buffer.ochans) ? modchans : x->buffer.ochans; // MIN
             x->loop.minloop = x->loop.startloop = 0.0;
             x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((modchans > 1) ?
                                                         // modchans : 1);
@@ -1651,13 +1653,13 @@ void karma_assist(t_karma* x, void* b, long m, long a, char* s)
     long synclet;
     dummy = a + 1;
     synclet = x->syncoutlet;
-    a = (a < x->ochans) ? 0 : ((a > x->ochans) ? 2 : 1);
+    a = (a < x->buffer.ochans) ? 0 : ((a > x->buffer.ochans) ? 2 : 1);
 
     if (m == ASSIST_INLET) {
         switch (a) {
         case 0:
             if (dummy == 1) {
-                if (x->ochans == 1)
+                if (x->buffer.ochans == 1)
                     strncpy_zero(s, "(signal) Record Input / messages to karma~", 256);
                 else
                     strncpy_zero(s, "(signal) Record Input 1 / messages to karma~", 256);
@@ -1677,7 +1679,7 @@ void karma_assist(t_karma* x, void* b, long m, long a, char* s)
     } else { // ASSIST_OUTLET
         switch (a) {
         case 0:
-            if (x->ochans == 1)
+            if (x->buffer.ochans == 1)
                 strncpy_zero(s, "(signal) Audio Output", 256);
             else
                 snprintf_zero(s, 256, "(signal) Audio Output %ld", dummy);
@@ -1717,7 +1719,7 @@ void karma_assist(t_karma* x, void* b, long m, long a, char* s)
 void karma_float(t_karma* x, double speedfloat)
 {
     long inlet = proxy_getinlet((t_object*)x);
-    long chans = (long)x->ochans;
+    long chans = (long)x->buffer.ochans;
 
     if (inlet == chans) { // if speed inlet
         x->speedfloat = speedfloat;
@@ -1936,7 +1938,7 @@ void karma_append(t_karma* x)
 
 void karma_overdub(t_karma* x, double amplitude)
 {
-    x->overdubamp = CLAMP(amplitude, 0.0, 1.0);
+    x->audio.overdubamp = CLAMP(amplitude, 0.0, 1.0);
 }
 
 
@@ -2111,20 +2113,20 @@ void kh_initialize_perform_vars(
     double* snrramp, switchramp_type_t* snrtype, interp_type_t* interp,
     double* speedfloat, double* o1prev, double* o1dif, double* writeval1)
 {
-    *o1prev = x->o1prev;
-    *o1dif = x->o1dif;
-    *writeval1 = x->writeval1;
+    *o1prev = x->audio.o1prev;
+    *o1dif = x->audio.o1dif;
+    *writeval1 = x->audio.writeval1;
     *accuratehead = x->timing.playhead;
     *playhead = trunc(*accuratehead);
     *maxhead = x->timing.maxhead;
     *wrapflag = x->wrapflag;
     *jumphead = x->timing.jumphead;
-    *pokesteps = x->pokesteps;
+    *pokesteps = x->audio.pokesteps;
     *snrfade = x->snrfade;
     *globalramp = (double)x->globalramp;
     *snrramp = (double)x->snrramp;
     *snrtype = x->snrtype;
-    *interp = x->interpflag;
+    *interp = x->audio.interpflag;
     *speedfloat = x->speedfloat;
 }
 
@@ -2235,8 +2237,8 @@ void karma_mono_perform(
     selstart = x->timing.selstart;
     endloop = x->loop.endloop;
     recendmark = x->recendmark;
-    overdubamp = x->overdubprev;
-    overdubprev = x->overdubamp;
+    overdubamp = x->audio.overdubprev;
+    overdubprev = x->audio.overdubamp;
     ovdbdif = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
     recordfade = x->recordfade;
     playfade = x->playfade;
@@ -2575,11 +2577,11 @@ void karma_mono_perform(
     }
 
     // Update all state variables back to the main object
-    x->o1prev = o1prev;
-    x->o1dif = o1dif;
-    x->writeval1 = writeval1;
+    x->audio.o1prev = o1prev;
+    x->audio.o1dif = o1dif;
+    x->audio.writeval1 = writeval1;
     x->timing.maxhead = maxhead;
-    x->pokesteps = pokesteps;
+    x->audio.pokesteps = pokesteps;
     x->wrapflag = wrapflag;
     x->snrfade = snrfade;
     x->timing.playhead = accuratehead;
@@ -2604,7 +2606,7 @@ void karma_mono_perform(
     x->loopdetermine = loopdetermine;
     x->loop.startloop = startloop;
     x->loop.endloop = endloop;
-    x->overdubprev = overdubamp;
+    x->audio.overdubprev = overdubamp;
     x->recendmark = recendmark;
     x->append = append;
 
