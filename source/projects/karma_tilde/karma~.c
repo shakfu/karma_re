@@ -158,38 +158,23 @@ static inline void kh_apply_ipoke_interpolation(
 static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf);
 
 static inline void kh_process_recording_cleanup(
-    t_bool record, double globalramp, long frames, float *b, long pchans,
-    double accuratehead, long *recordhead, char direction, long *recordfade, 
-    char *recfadeflag, double *snrfade, t_bool use_ease_on, double ease_pos);
+    t_karma *x, float *b, double accuratehead, char direction, t_bool use_ease_on, double ease_pos);
 
 static inline void kh_process_forward_jump_boundary(
-    double *accuratehead, long maxloop, long setloopsize, t_bool record,
-    double globalramp, long frames, float *b, long pchans, long *recordhead,
-    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+    t_karma *x, float *b, double *accuratehead, char direction);
 
 static inline void kh_process_reverse_jump_boundary(
-    double *accuratehead, long frames, long setloopsize, long maxloop,
-    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
-    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+    t_karma *x, float *b, double *accuratehead, char direction);
 
 static inline void kh_process_forward_wrap_boundary(
-    double *accuratehead, long maxloop, long minloop, long setloopsize,
-    t_bool record, double globalramp, long frames, float *b, long pchans,
-    long *recordhead, char direction, long *recordfade, char *recfadeflag,
-    double *snrfade);
+    t_karma *x, float *b, double *accuratehead, char direction);
 
 static inline void kh_process_reverse_wrap_boundary(
-    double *accuratehead, long frames, long maxloop, long setloopsize,
-    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
-    char direction, long *recordfade, char *recfadeflag, double *snrfade);
+    t_karma *x, float *b, double *accuratehead, char direction);
 
 static inline void kh_process_loop_boundary(
-    double *accuratehead, double speed, double srscale, char direction, 
-    char directionorig, long frames, long maxloop, long minloop, 
-    long setloopsize, long startloop, long endloop, t_bool wrapflag, 
-    t_bool jumpflag, t_bool record, double globalramp, float *b, 
-    long pchans, long *recordhead, long *recordfade, char *recfadeflag,
-    double *snrfade);
+    t_karma *x, float *b, double *accuratehead, double speed, char direction, 
+    long setloopsize, t_bool wrapflag, t_bool jumpflag);
 
 static inline double kh_perform_playback_interpolation(
     double frac, float *b, long interp0, long interp1, 
@@ -496,113 +481,87 @@ static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
 // Helper function to handle loop boundary wrapping and jumping
 // Helper function to handle recording state cleanup after boundary adjustments
 static inline void kh_process_recording_cleanup(
-    t_bool record, double globalramp, long frames, float *b, long pchans,
-    double accuratehead, long *recordhead, char direction, long *recordfade, 
-    char *recfadeflag, double *snrfade, t_bool use_ease_on, double ease_pos)
+    t_karma *x, float *b, double accuratehead, char direction, t_bool use_ease_on, double ease_pos)
 {
-    *snrfade = 0.0;
-    if (record) {
-        if (globalramp) {
+    x->fade.snrfade = 0.0;
+    if (x->state.record) {
+        if (x->fade.globalramp) {
             if (use_ease_on) {
-                kh_ease_bufon(frames - 1, b, pchans, accuratehead, *recordhead, direction, globalramp);
+                kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, 
+                             accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
             } else {
-                kh_ease_bufoff(frames - 1, b, pchans, ease_pos, -direction, globalramp);
+                kh_ease_bufoff(x->buffer.bframes - 1, b, x->buffer.nchans, 
+                              ease_pos, -direction, x->fade.globalramp);
             }
-            *recordfade = 0;
+            x->fade.recordfade = 0;
         }
-        *recfadeflag = 0;
-        *recordhead = -1;
+        x->fade.recfadeflag = 0;
+        x->timing.recordhead = -1;
     }
 }
 
 // Helper function to handle forward direction boundary wrapping for jumpflag
 static inline void kh_process_forward_jump_boundary(
-    double *accuratehead, long maxloop, long setloopsize, t_bool record,
-    double globalramp, long frames, float *b, long pchans, long *recordhead,
-    char direction, long *recordfade, char *recfadeflag, double *snrfade)
+    t_karma *x, float *b, double *accuratehead, char direction)
 {
-    if (*accuratehead > maxloop) {
-        *accuratehead = *accuratehead - setloopsize;
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans, 
-                               *accuratehead, recordhead, direction, recordfade, 
-                               recfadeflag, snrfade, 1, 0);
+    if (*accuratehead > x->loop.maxloop) {
+        *accuratehead = *accuratehead - (x->loop.maxloop - x->loop.minloop);
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
     } else if (*accuratehead < 0.0) {
-        *accuratehead = maxloop + *accuratehead;
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 1, 0);
+        *accuratehead = x->loop.maxloop + *accuratehead;
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
     }
 }
 
 // Helper function to handle reverse direction boundary wrapping for jumpflag
 static inline void kh_process_reverse_jump_boundary(
-    double *accuratehead, long frames, long setloopsize, long maxloop,
-    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
-    char direction, long *recordfade, char *recfadeflag, double *snrfade)
+    t_karma *x, float *b, double *accuratehead, char direction)
 {
-    if (*accuratehead > (frames - 1)) {
-        *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 1, 0);
-    } else if (*accuratehead < ((frames - 1) - maxloop)) {
-        *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 1, 0);
+    long setloopsize = x->loop.maxloop - x->loop.minloop;
+    if (*accuratehead > (x->buffer.bframes - 1)) {
+        *accuratehead = ((x->buffer.bframes - 1) - setloopsize) + (*accuratehead - (x->buffer.bframes - 1));
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
+    } else if (*accuratehead < ((x->buffer.bframes - 1) - x->loop.maxloop)) {
+        *accuratehead = (x->buffer.bframes - 1) - (((x->buffer.bframes - 1) - setloopsize) - *accuratehead);
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
     }
 }
 
 // Helper function to handle forward direction boundaries with wrapflag
 static inline void kh_process_forward_wrap_boundary(
-    double *accuratehead, long maxloop, long minloop, long setloopsize,
-    t_bool record, double globalramp, long frames, float *b, long pchans,
-    long *recordhead, char direction, long *recordfade, char *recfadeflag,
-    double *snrfade)
+    t_karma *x, float *b, double *accuratehead, char direction)
 {
-    if (*accuratehead > maxloop) {
+    long setloopsize = x->loop.maxloop - x->loop.minloop;
+    if (*accuratehead > x->loop.maxloop) {
         *accuratehead = *accuratehead - setloopsize;
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 0, maxloop);
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, x->loop.maxloop);
     } else if (*accuratehead < 0.0) {
-        *accuratehead = maxloop + setloopsize;
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 0, minloop);
+        *accuratehead = x->loop.maxloop + setloopsize;
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, x->loop.minloop);
     }
 }
 
 // Helper function to handle reverse direction boundaries with wrapflag
 static inline void kh_process_reverse_wrap_boundary(
-    double *accuratehead, long frames, long maxloop, long setloopsize,
-    t_bool record, double globalramp, float *b, long pchans, long *recordhead,
-    char direction, long *recordfade, char *recfadeflag, double *snrfade)
+    t_karma *x, float *b, double *accuratehead, char direction)
 {
-    if (*accuratehead < ((frames - 1) - maxloop)) {
-        *accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - *accuratehead);
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 0, ((frames - 1) - maxloop));
-    } else if (*accuratehead > (frames - 1)) {
-        *accuratehead = ((frames - 1) - setloopsize) + (*accuratehead - (frames - 1));
-        kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                               *accuratehead, recordhead, direction, recordfade,
-                               recfadeflag, snrfade, 0, (frames - 1));
+    long setloopsize = x->loop.maxloop - x->loop.minloop;
+    if (*accuratehead < ((x->buffer.bframes - 1) - x->loop.maxloop)) {
+        *accuratehead = (x->buffer.bframes - 1) - (((x->buffer.bframes - 1) - setloopsize) - *accuratehead);
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, ((x->buffer.bframes - 1) - x->loop.maxloop));
+    } else if (*accuratehead > (x->buffer.bframes - 1)) {
+        *accuratehead = ((x->buffer.bframes - 1) - setloopsize) + (*accuratehead - (x->buffer.bframes - 1));
+        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, (x->buffer.bframes - 1));
     }
 }
 
 static inline void kh_process_loop_boundary(
-    double *accuratehead, double speed, double srscale, char direction, 
-    char directionorig, long frames, long maxloop, long minloop, 
-    long setloopsize, long startloop, long endloop, t_bool wrapflag, 
-    t_bool jumpflag, t_bool record, double globalramp, float *b, 
-    long pchans, long *recordhead, long *recordfade, char *recfadeflag,
-    double *snrfade)
+    t_karma *x, float *b, double *accuratehead, double speed, char direction, 
+    long setloopsize, t_bool wrapflag, t_bool jumpflag)
 {
-    double speedsrscaled = speed * srscale;
+    double speedsrscaled = speed * x->timing.srscale;
     
-    if (record) {
+    if (x->state.record) {
         speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? 
                        ((setloopsize / 1024) * direction) : speedsrscaled;
     }
@@ -610,39 +569,27 @@ static inline void kh_process_loop_boundary(
     
     if (jumpflag) {
         // Handle boundary wrapping for forward/reverse directions
-        if (directionorig >= 0) {
-            kh_process_forward_jump_boundary(accuratehead, maxloop, setloopsize, record,
-                                       globalramp, frames, b, pchans, recordhead,
-                                       direction, recordfade, recfadeflag, snrfade);
+        if (x->state.directionorig >= 0) {
+            kh_process_forward_jump_boundary(x, b, accuratehead, direction);
         } else {
-            kh_process_reverse_jump_boundary(accuratehead, frames, setloopsize, maxloop,
-                                       record, globalramp, b, pchans, recordhead,
-                                       direction, recordfade, recfadeflag, snrfade);
+            kh_process_reverse_jump_boundary(x, b, accuratehead, direction);
         }
     } else {
         // Regular window/position constraints handling
         if (wrapflag) {
-            if ((*accuratehead > endloop) && (*accuratehead < startloop)) {
-                *accuratehead = (direction >= 0) ? startloop : endloop;
-                kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                                       *accuratehead, recordhead, direction, recordfade,
-                                       recfadeflag, snrfade, 1, 0);
-            } else if (directionorig >= 0) {
-                kh_process_forward_wrap_boundary(accuratehead, maxloop, minloop, setloopsize,
-                                           record, globalramp, frames, b, pchans, recordhead,
-                                           direction, recordfade, recfadeflag, snrfade);
+            if ((*accuratehead > x->loop.endloop) && (*accuratehead < x->loop.startloop)) {
+                *accuratehead = (direction >= 0) ? x->loop.startloop : x->loop.endloop;
+                kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
+            } else if (x->state.directionorig >= 0) {
+                kh_process_forward_wrap_boundary(x, b, accuratehead, direction);
             } else {
-                kh_process_reverse_wrap_boundary(accuratehead, frames, maxloop, setloopsize,
-                                           record, globalramp, b, pchans, recordhead,
-                                           direction, recordfade, recfadeflag, snrfade);
+                kh_process_reverse_wrap_boundary(x, b, accuratehead, direction);
             }
         } else {
             // Not wrapflag
-            if ((*accuratehead > endloop) || (*accuratehead < startloop)) {
-                *accuratehead = (direction >= 0) ? startloop : endloop;
-                kh_process_recording_cleanup(record, globalramp, frames, b, pchans,
-                                       *accuratehead, recordhead, direction, recordfade,
-                                       recfadeflag, snrfade, 1, 0);
+            if ((*accuratehead > x->loop.endloop) || (*accuratehead < x->loop.startloop)) {
+                *accuratehead = (direction >= 0) ? x->loop.startloop : x->loop.endloop;
+                kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
             }
         }
     }
@@ -2312,10 +2259,7 @@ void karma_mono_perform(
 
                     // Handle loop boundary wrapping and jumping
                     kh_process_loop_boundary(
-                        &accuratehead, speed, srscale, direction, directionorig, frames,
-                        maxloop, minloop, setloopsize, startloop, endloop, wrapflag,
-                        jumpflag, record, globalramp, b, pchans, &recordhead, &recordfade,
-                        &recfadeflag, &snrfade);
+                        x, b, &accuratehead, speed, direction, setloopsize, wrapflag, jumpflag);
 
                     // Clear jumpflag if conditions are met
                     if (jumpflag) {
