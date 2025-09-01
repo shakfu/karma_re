@@ -32,3 +32,4 @@ logs
 package-info.json
 support/*
 tmp
+uv.lock

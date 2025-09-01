@@ -1,113 +1,36 @@
-# karma~ Code Complexity Analysis & Refactoring
+# karma_re~ -- Refactoring Mono Karma~
 
-This project analyzes and refactors Rodrigo Constanzo's & raja's & pete's [karma~1.6](https://github.com/rconstanzo/karma) Max/MSP audio looper plugin to reduce code complexity and improve maintainability. The focus has been on making the codebase more understandable while preserving all original functionality.
+As I have used Rodrigo Constanzo's & raja's & pete's [karma~1.6](https://github.com/rconstanzo/karma) Max/MSP audio looper plugin in [another Max project](https://github.com/shakfu/groovin), I was curious enough about how it worked that I tried to read the c code of the external. 
 
-## Refactoring Approach
+I found it to be very complex and difficult to understand, so I started trying to do things to make it more understandable for me:
 
-The refactoring strategy employed several systematic approaches:
+- Extract smaller functions from complex functions
 
-### 1. **Function Extraction**
-Large, deeply nested functions were broken down by extracting logical blocks into separate helper functions. This reduces nesting depth and improves code readability by giving meaningful names to complex operations.
+- Add enums to make things more understandable
 
-### 2. **Type Safety Improvements**
-- Replaced `t_ptr_int` with standard `long` type (59 occurrences)
-- Added comprehensive enum definitions for better type safety and code clarity
+- Use clang-format, clang-tidy, and other AI tools to help in the process
 
-### 3. **Code Elimination**
-- Removed unused stereo and quad perform functions 
-- Eliminated dead code branches identified through static analysis
+- Drop stereo and quad perform functions and just focus on refactoring the mono perform function
 
-### 4. **Structural Improvements**
-- Added meaningful enums for state management
-- Improved variable naming and organization
-- Enhanced code documentation through function extraction
-
-## Initial Complexity Analysis
-
-The original code had several functions with extreme complexity scores:
-
-```text
-Complexity Scores (BEFORE refactoring)
-Score | ln-ct | nc-lns| file-name(line): proc-name
-   54      85      76   source/projects/karma_tilde/karma~.c(1391): karma_record
-   94     185     134   source/projects/karma_tilde/karma~.c(720): karma_buf_change_internal  
- 3397    1067     975   source/projects/karma_tilde/karma~.c(1620): karma_mono_perform
-total nc-lns     1185
-
-Nesting Depth Issues:
-- karma_buf_change_internal: level 7 nesting
-- karma_record: level 9 nesting  
-- karma_mono_perform: level 11 nesting (extreme complexity)
-```
-
-## Current Complexity Status
-
-After systematic refactoring, significant improvements have been achieved:
-
-```text
-Complexity Scores (AFTER refactoring)
-Score | ln-ct | nc-lns| file-name(line): proc-name
- 3291     905     813   source/projects/karma_tilde/karma~.c(1623): karma_mono_perform
-total nc-lns      813
-
-Results:
-- karma_buf_change_internal: ELIMINATED from high-complexity list ✅
-- karma_record: ELIMINATED from high-complexity list ✅  
-- karma_mono_perform: Reduced from 3397 to 3291 (95 point improvement) ✅
-- Total line count reduced from 1185 to 813 lines (372 line reduction)
-```
+- Use code analysis tools like cflow to figure out the call graph
 
 
-## Completed Refactoring Work
+## Status
 
-### ✅ **Major Function Refactoring**
+- This is still a work in progress but there are some graphs to illustrate addition of helper functions.
 
-#### `karma_buf_change_internal` - **ELIMINATED from complexity list**
-- **Before**: 94 complexity score, 7 levels of nesting  
-- **After**: Completely eliminated from high-complexity functions
-- **Method**: Extracted 4 helper functions:
-  - `karma_validate_buffer()` - Buffer validation logic
-  - `karma_parse_loop_points_sym()` - Symbol type processing  
-  - `karma_parse_numeric_arg()` - Numeric argument handling
-  - `karma_process_argc_args()` - Systematic argument processing
 
-#### `karma_record` - **ELIMINATED from complexity list**
-- **Before**: 54 complexity score, 9 levels of nesting
-- **After**: Completely eliminated from high-complexity functions  
-- **Method**: Extracted 2 helper functions:
-  - `karma_determine_record_state()` - State determination logic
-  - `karma_clear_buffer_channels()` - Buffer clearing operations
 
-#### `karma_mono_perform` - **SIGNIFICANTLY IMPROVED**
-- **Before**: 3397 complexity score, 975 lines, 11 levels of nesting
-- **After**: 3291 complexity score, 813 lines (95 point reduction)
-- **Method**: Extracted 7 helper functions:
-  - `karma_process_state_control()` - State control processing
-  - `karma_initialize_perform_vars()` - Variable initialization  
-  - `karma_handle_direction_change()` - Direction change logic
-  - `karma_handle_record_toggle()` - Record state transitions
-  - `karma_handle_ipoke_recording()` - Complex iPoke recording logic
-  - `karma_handle_recording_fade()` - Recording fade transitions
-  - `karma_handle_jump_logic()` - Jump positioning logic
+### karma~
 
-### ✅ **Type Safety & Code Quality**
-- [x] Converted `t_ptr_int` to standard `long` type (59 occurrences)
-- [x] Added comprehensive enum definitions:
-  - `control_state_t` - 12 distinct control states for clearer state management
-  - `human_state_t` - 6 human-readable state representations  
-  - `switchramp_type_t` - 7 different ramp curve types
-  - `interp_type_t` - 3 interpolation methods
-- [x] Improved type safety throughout codebase
+[pdf call-graph](./docs/cflow/karma_cflow_filter0.pdf)
 
-### ✅ **Code Elimination & Optimization**
-- [x] Removed unused stereo and quad perform functions (reduced file from 8,822 to 2,752 lines)
-- [x] Analyzed with `clang-tidy` and eliminated inactive code branches
-- [x] Streamlined build process and dependencies
+![original call-graph](./docs/cflow/karma_cflow_filter0.svg)
 
-### ✅ **Build & Compatibility**
-- [x] Maintained 100% compatibility with original Max/MSP plugin interface
-- [x] Clean compilation with no errors (only harmless type conversion warnings)
-- [x] Universal binary support (x86_64 + arm64)
-- [x] All original functionality preserved and tested
 
+### karma_re~
+
+[pdf call-graph](./docs/cflow/karma_re_cflow_filter0.pdf)
+
+![original call-graph](./docs/cflow/karma_re_cflow_filter0.svg)
 
