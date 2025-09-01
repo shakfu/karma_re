@@ -17,6 +17,22 @@ struct t_karma {
         double  bmsr;           // buffer samplerate in samples-per-millisecond
     } buffer;
 
+    // Timing and sample rate group
+    struct {
+        double  ssr;            // system samplerate
+        double  srscale;        // scaling factor: buffer samplerate / system samplerate ("to scale playback speeds appropriately")
+        double  vs;             // system vectorsize
+        double  vsnorm;         // normalised system vectorsize
+        double  bvsnorm;        // normalised buffer vectorsize
+        double  playhead;       // play position in samples (raja: "double so that capable of tracking playhead position in floating-point indices")
+        double  maxhead;        // maximum playhead position that the recording has gone into the buffer~ in samples  // ditto
+        double  jumphead;       // jump position (in terms of phase 0..1 of loop) <<-- of 'loop', not 'buffer~'
+        long    recordhead;     // record head position in samples
+        double  selstart;       // start position of window ('selection') within loop set by the 'position $1' message sent to object (in phase 0..1)
+        double  selection;      // selection length of window ('selection') within loop set by 'window $1' message sent to object (in phase 0..1)
+        //  double  selmultiply;    // store loop length multiplier amount from 'multiply' method -->> TODO
+    } timing;
+
     // Loop boundary group
     struct {
         long   minloop;         // the minimum point in loop so far that has been requested as start point (in samples), is static value
@@ -29,12 +45,6 @@ struct t_karma {
 
     long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
     long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
-
-    double  ssr;            // system samplerate
-    double  srscale;        // scaling factor: buffer samplerate / system samplerate ("to scale playback speeds appropriately")
-    double  vs;             // system vectorsize
-    double  vsnorm;         // normalised system vectorsize
-    double  bvsnorm;        // normalised buffer vectorsize
 
     double  o1prev;         // previous sample value of "osamp1" etc...
     double  o2prev;         // ...
@@ -49,12 +59,6 @@ struct t_karma {
     double  writeval3;      // ...
     double  writeval4;
 
-    double  playhead;       // play position in samples (raja: "double so that capable of tracking playhead position in floating-point indices")
-    double  maxhead;        // maximum playhead position that the recording has gone into the buffer~ in samples  // ditto
-    double  jumphead;       // jump position (in terms of phase 0..1 of loop) <<-- of 'loop', not 'buffer~'
-    double  selstart;       // start position of window ('selection') within loop set by the 'position $1' message sent to object (in phase 0..1)
-    double  selection;      // selection length of window ('selection') within loop set by 'window $1' message sent to object (in phase 0..1)
-//  double  selmultiply;    // store loop length multiplier amount from 'multiply' method -->> TODO
     double  snrfade;        // fade counter for switch n ramp, normalised 0..1 ??
     double  overdubamp;     // overdub amplitude 0..1 set by 'overdub $1' message sent to object
     double  overdubprev;    // a 'current' overdub amount ("for smoothing overdub amp changes")
@@ -480,7 +484,7 @@ static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
     x->buffer.bmsr     = buffer_getmillisamplerate(buf);
     x->buffer.bsr      = buffer_getsamplerate(buf);
     x->nchans   = (x->buffer.bchans < x->ochans) ? x->buffer.bchans : x->ochans;  // MIN
-    x->srscale  = x->buffer.bsr / x->ssr;
+    x->timing.srscale  = x->buffer.bsr / x->timing.ssr;
 }
 
 // Helper function to handle loop boundary wrapping and jumping
@@ -954,13 +958,13 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
             chans = 4;
         }
 
-        x->recordhead = -1;
+        x->timing.recordhead = -1;
         x->reportlist = 50;                // ms
         x->snrramp = x->globalramp = 256;  // samps...
         x->playfade = x->recordfade = 257; // ...
-        x->ssr = sys_getsr();
-        x->vs = sys_getblksize();
-        x->vsnorm = x->vs / x->ssr;
+        x->timing.ssr = sys_getsr();
+        x->timing.vs = sys_getblksize();
+        x->timing.vsnorm = x->timing.vs / x->timing.ssr;
 
         x->overdubprev = 1.0;
         x->overdubamp = 1.0;
@@ -990,12 +994,12 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->wrapflag = 0;
         x->loopdetermine = 0;
         x->writeval1 = x->writeval2 = x->writeval3 = x->writeval4 = 0;
-        x->maxhead = 0.0;
-        x->playhead = 0.0;
+        x->timing.maxhead = 0.0;
+        x->timing.playhead = 0.0;
         x->loop.initiallow = -1;
         x->loop.initialhigh = -1;
-        x->selstart = 0.0;
-        x->jumphead = 0.0;
+        x->timing.selstart = 0.0;
+        x->timing.jumphead = 0.0;
         x->snrfade = 0.0;
         x->o1dif = x->o2dif = x->o3dif = x->o4dif = 0.0;
         x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
@@ -1086,15 +1090,15 @@ void karma_buf_setup(t_karma* x, t_symbol* s)
     } else {
         //  if (buf != NULL) {
         x->directionorig = 0;
-        x->maxhead = x->playhead = 0.0;
-        x->recordhead = -1;
+        x->timing.maxhead = x->timing.playhead = 0.0;
+        x->timing.recordhead = -1;
         kh_init_buffer_properties(x, buf);
-        x->bvsnorm = x->vsnorm * (x->buffer.bsr / (double)x->buffer.bframes);
+        x->timing.bvsnorm = x->timing.vsnorm * (x->buffer.bsr / (double)x->buffer.bframes);
         x->loop.minloop = x->loop.startloop = 0.0;
         x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1) ?
                                                     // x->bchans : 1);
-        x->selstart = 0.0;
-        x->selection = 1.0;
+        x->timing.selstart = 0.0;
+        x->timing.selection = 1.0;
     }
 }
 
@@ -1114,18 +1118,18 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
             || (x->buffer.bmsr != modbmsr)) {
             x->buffer.bsr = modbsr;
             x->buffer.bmsr = modbmsr;
-            x->srscale = modbsr / x->ssr; // x->ssr / modbsr;
+            x->timing.srscale = modbsr / x->timing.ssr; // x->ssr / modbsr;
             x->buffer.bframes = modframes;
             x->buffer.bchans = modchans;
             x->nchans = (modchans < x->ochans) ? modchans : x->ochans; // MIN
             x->loop.minloop = x->loop.startloop = 0.0;
             x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((modchans > 1) ?
                                                         // modchans : 1);
-            x->bvsnorm = x->vsnorm * (modbsr / (double)modframes);
+            x->timing.bvsnorm = x->timing.vsnorm * (modbsr / (double)modframes);
 
-            karma_select_size(x, x->selection);
-            karma_select_start(x, x->selstart);
-            //          karma_select_internal(x, x->selstart, x->selection);
+            karma_select_size(x, x->timing.selection);
+            karma_select_start(x, x->timing.selstart);
+            //          karma_select_internal(x, x->timing.selstart, x->timing.selection);
 
             //          post("buff modify called"); // dev
         }
@@ -1161,10 +1165,10 @@ void kh_buf_values_internal(
     // bchans    = x->bchans;
     bframesm1 = (x->buffer.bframes - 1);
     bframesms = (double)bframesm1 / x->buffer.bmsr;             // buffersize in milliseconds
-    bvsnorm = x->vsnorm * (x->buffer.bsr / (double)x->buffer.bframes); // vectorsize in (double) % 0..1
+    bvsnorm = x->timing.vsnorm * (x->buffer.bsr / (double)x->buffer.bframes); // vectorsize in (double) % 0..1
                                                          // (phase) units of buffer~
     bvsnorm05 = bvsnorm * 0.5;                           // half vectorsize (normalised)
-    x->bvsnorm = bvsnorm;
+    x->timing.bvsnorm = bvsnorm;
 
     // by this stage in routine, if LOW < 0., it has not been set and should be
     // set to default (0.) regardless of 'loop_points_flag'
@@ -1235,7 +1239,7 @@ void kh_buf_values_internal(
                 (t_object*)x,
                 "loop size cannot be this small, minimum is vectorsize "
                 "internally (currently using %.0f samples)",
-                x->vs);
+                x->timing.vs);
             if ((low - bvsnorm05) < 0.) {
                 low = 0.;
                 high = bvsnorm;
@@ -1276,9 +1280,9 @@ void kh_buf_values_internal(
     x->loop.maxloop = x->loop.endloop = high * bframesm1;
 
     // update selection
-    karma_select_size(x, x->selection);
-    karma_select_start(x, x->selstart);
-    // karma_select_internal(x, x->selstart, x->selection);
+    karma_select_size(x, x->timing.selection);
+    karma_select_start(x, x->timing.selstart);
+    // karma_select_internal(x, x->timing.selstart, x->timing.selection);
 }
 
 // karma_buf_change method defered
@@ -1303,8 +1307,8 @@ void kh_buf_change_internal(
 
     // Reset player state
     x->directionorig = 0;
-    x->maxhead = x->playhead = 0.0;
-    x->recordhead = -1;
+    x->timing.maxhead = x->timing.playhead = 0.0;
+    x->timing.recordhead = -1;
 
     // Process arguments to extract loop points and settings
     kh_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
@@ -1585,8 +1589,8 @@ void karma_clock_list(t_karma* x)
         long setloopsize;
 
         double bmsr = x->buffer.bmsr;
-        double playhead = x->playhead;
-        double selection = x->selection;
+        double playhead = x->timing.playhead;
+        double selection = x->timing.selection;
         double normalisedposition;
         setloopsize = maxloop - minloop;
 
@@ -1724,7 +1728,7 @@ void karma_select_start(
     t_karma* x, double positionstart) // positionstart = "position" float message
 {
     long bfrmaesminusone, setloopsize;
-    x->selstart = CLAMP(positionstart, 0., 1.);
+    x->timing.selstart = CLAMP(positionstart, 0., 1.);
 
     // for dealing with selection-out-of-bounds logic:
 
@@ -1738,7 +1742,7 @@ void karma_select_start(
             x->loop.startloop = CLAMP(
                 (bfrmaesminusone - x->loop.maxloop) + (positionstart * setloopsize),
                 bfrmaesminusone - x->loop.maxloop, bfrmaesminusone);
-            x->loop.endloop = x->loop.startloop + (x->selection * x->loop.maxloop);
+            x->loop.endloop = x->loop.startloop + (x->timing.selection * x->loop.maxloop);
 
             if (x->loop.endloop > bfrmaesminusone) {
                 x->loop.endloop = (bfrmaesminusone - setloopsize)
@@ -1753,7 +1757,7 @@ void karma_select_start(
             x->loop.startloop = CLAMP(
                 ((positionstart * setloopsize) + x->loop.minloop), x->loop.minloop,
                 x->loop.maxloop); // no need for CLAMP ??
-            x->loop.endloop = x->loop.startloop + (x->selection * setloopsize);
+            x->loop.endloop = x->loop.startloop + (x->timing.selection * setloopsize);
 
             if (x->loop.endloop > x->loop.maxloop) {
                 x->loop.endloop = x->loop.endloop - setloopsize;
@@ -1769,16 +1773,16 @@ void karma_select_size(t_karma* x, double duration) // duration = "window" float
 {
     long bfrmaesminusone, setloopsize;
 
-    // double minsampsnorm = x->bvsnorm * 0.5;           // half vectorsize
-    // samples minimum as normalised value  // !! buffer sr !! x->selection =
+    // double minsampsnorm = x->timing.bvsnorm * 0.5;           // half vectorsize
+    // samples minimum as normalised value  // !! buffer sr !! x->timing.selection =
     // (duration < 0.0) ? 0.0 : duration; // !! allow zero for rodrigo !!
-    x->selection = CLAMP(duration, 0., 1.);
+    x->timing.selection = CLAMP(duration, 0., 1.);
 
     // for dealing with selection-out-of-bounds logic:
 
     if (!x->loopdetermine) {
         setloopsize = x->loop.maxloop - x->loop.minloop;
-        x->loop.endloop = x->loop.startloop + (x->selection * setloopsize);
+        x->loop.endloop = x->loop.startloop + (x->timing.selection * setloopsize);
 
         if (x->directionorig < 0) // if originally in reverse
         {
@@ -1941,7 +1945,7 @@ void karma_jump(t_karma* x, double jumpposition)
     if (x->initinit) {
         if (!((x->loopdetermine) && (!x->record))) {
             x->statecontrol = CONTROL_STATE_JUMP;
-            x->jumphead = CLAMP(
+            x->timing.jumphead = CLAMP(
                 jumpposition, 0.,
                 1.); // for now phase only, TODO - ms & samples
             //          x->statehuman = HUMAN_STATE_PLAY;           // no -
@@ -1991,14 +1995,14 @@ t_max_err karma_buf_notify(t_karma* x, t_symbol* s, t_symbol* msg, void* sndr, v
 void karma_dsp64(
     t_karma* x, t_object* dsp64, short* count, double srate, long vecount, long flags)
 {
-    x->ssr = srate;
-    x->vs = (double)vecount;
-    x->vsnorm = (double)vecount / srate; // x->vs / x->ssr;
+    x->timing.ssr = srate;
+    x->timing.vs = (double)vecount;
+    x->timing.vsnorm = (double)vecount / srate; // x->vs / x->ssr;
     x->clockgo = 1;
 
     if (x->buffer.bufname != 0) {
         if (!x->initinit)
-            karma_buf_setup(x, x->buffer.bufname); // does 'x->bvsnorm'    // !! this
+            karma_buf_setup(x, x->buffer.bufname); // does 'x->timing.bvsnorm'    // !! this
                                             // should be defered ??
         x->speedconnect = count[1];         // speed is 2nd inlet
         object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
@@ -2006,8 +2010,8 @@ void karma_dsp64(
             karma_select_size(x, 1.);
             x->initinit = 1;
         } else {
-            karma_select_size(x, x->selection);
-            karma_select_start(x, x->selstart);
+            karma_select_size(x, x->timing.selection);
+            karma_select_start(x, x->timing.selstart);
         }
     }
 }
@@ -2110,11 +2114,11 @@ void kh_initialize_perform_vars(
     *o1prev = x->o1prev;
     *o1dif = x->o1dif;
     *writeval1 = x->writeval1;
-    *accuratehead = x->playhead;
+    *accuratehead = x->timing.playhead;
     *playhead = trunc(*accuratehead);
-    *maxhead = x->maxhead;
+    *maxhead = x->timing.maxhead;
     *wrapflag = x->wrapflag;
-    *jumphead = x->jumphead;
+    *jumphead = x->timing.jumphead;
     *pokesteps = x->pokesteps;
     *snrfade = x->snrfade;
     *globalramp = (double)x->globalramp;
@@ -2211,10 +2215,10 @@ void karma_mono_perform(
     statecontrol = x->statecontrol;
     playfadeflag = x->playfadeflag;
     recfadeflag = x->recfadeflag;
-    recordhead = x->recordhead;
+    recordhead = x->timing.recordhead;
     alternateflag = x->alternateflag;
     pchans = x->buffer.bchans;
-    srscale = x->srscale;
+    srscale = x->timing.srscale;
     frames = x->buffer.bframes;
     triginit = x->triginit;
     jumpflag = x->jumpflag;
@@ -2225,10 +2229,10 @@ void karma_mono_perform(
     maxloop = x->loop.maxloop;
     initiallow = x->loop.initiallow;
     initialhigh = x->loop.initialhigh;
-    selection = x->selection;
+    selection = x->timing.selection;
     loopdetermine = x->loopdetermine;
     startloop = x->loop.startloop;
-    selstart = x->selstart;
+    selstart = x->timing.selstart;
     endloop = x->loop.endloop;
     recendmark = x->recendmark;
     overdubamp = x->overdubprev;
@@ -2574,14 +2578,14 @@ void karma_mono_perform(
     x->o1prev = o1prev;
     x->o1dif = o1dif;
     x->writeval1 = writeval1;
-    x->maxhead = maxhead;
+    x->timing.maxhead = maxhead;
     x->pokesteps = pokesteps;
     x->wrapflag = wrapflag;
     x->snrfade = snrfade;
-    x->playhead = accuratehead;
+    x->timing.playhead = accuratehead;
     x->directionorig = directionorig;
     x->directionprev = directionprev;
-    x->recordhead = recordhead;
+    x->timing.recordhead = recordhead;
     x->alternateflag = alternateflag;
     x->recordfade = recordfade;
     x->triginit = triginit;
