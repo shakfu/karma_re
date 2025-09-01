@@ -4,14 +4,23 @@
 struct t_karma {
     
     t_pxobject      k_ob;
-    t_buffer_ref    *buf;
-    t_buffer_ref    *buf_temp;      // so that 'set' errors etc do not interupt current buf playback ...
-    t_symbol        *bufname;
-    t_symbol        *bufname_temp;  // ...
+
+    // Buffer management group
+    struct {
+        t_buffer_ref *buf;
+        t_buffer_ref *buf_temp;      // so that 'set' errors etc do not interupt current buf playback ...
+        t_symbol     *bufname;
+        t_symbol     *bufname_temp;  // ...
+        long   bframes;         // number of buffer frames (number of floats long the buffer is for a single channel)
+        long   bchans;          // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
+        double  bsr;            // buffer samplerate
+        double  bmsr;           // buffer samplerate in samples-per-millisecond
+    } buffer;
+
+    long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
+    long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
     double  ssr;            // system samplerate
-    double  bsr;            // buffer samplerate
-    double  bmsr;           // buffer samplerate in samples-per-millisecond
     double  srscale;        // scaling factor: buffer samplerate / system samplerate ("to scale playback speeds appropriately")
     double  vs;             // system vectorsize
     double  vsnorm;         // normalised system vectorsize
@@ -45,11 +54,6 @@ struct t_karma {
 //  long    boffset;        // zero indexed buffer channel # (default 0), user settable, not buffer~ queried -->> TODO
     long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
     long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
-
-    long   bframes;         // number of buffer frames (number of floats long the buffer is for a single channel)
-    long   bchans;          // number of buffer channels (number of floats in a frame, stereo has 2 samples per frame, etc.)
-    long   ochans;          // number of object audio channels (object arg #2: 1 / 2 / 4)
-    long   nchans;          // number of channels to actually address (use only channel one if 'ochans' == 1, etc.)
 
     interp_type_t interpflag; // playback interpolation
     long   recordhead;      // record head position in samples
@@ -467,12 +471,12 @@ static inline void kh_apply_ipoke_interpolation(
 
 // Helper function to initialize buffer properties
 static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
-    x->bchans   = buffer_getchannelcount(buf);
-    x->bframes  = buffer_getframecount(buf);
-    x->bmsr     = buffer_getmillisamplerate(buf);
-    x->bsr      = buffer_getsamplerate(buf);
-    x->nchans   = (x->bchans < x->ochans) ? x->bchans : x->ochans;  // MIN
-    x->srscale  = x->bsr / x->ssr;
+    x->buffer.bchans   = buffer_getchannelcount(buf);
+    x->buffer.bframes  = buffer_getframecount(buf);
+    x->buffer.bmsr     = buffer_getmillisamplerate(buf);
+    x->buffer.bsr      = buffer_getsamplerate(buf);
+    x->nchans   = (x->buffer.bchans < x->ochans) ? x->buffer.bchans : x->ochans;  // MIN
+    x->srscale  = x->buffer.bsr / x->ssr;
 }
 
 // Helper function to handle loop boundary wrapping and jumping
@@ -993,7 +997,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->o1prev = x->o2prev = x->o3prev = x->o4prev = 0.0;
 
         if (bufname != 0)
-            x->bufname = bufname; // !! setup is in 'karma_buf_setup()' called
+            x->buffer.bufname = bufname; // !! setup is in 'karma_buf_setup()' called
                                   // by 'karma_dsp64()'...
         /*      else                        // ...(this means double-clicking
            karma~ does not show buffer~ window until DSP turned on, ho hum)
@@ -1048,31 +1052,31 @@ void karma_free(t_karma* x)
     if (x->initskip) {
         dsp_free((t_pxobject*)x);
 
-        object_free(x->buf);
-        object_free(x->buf_temp);
+        object_free(x->buffer.buf);
+        object_free(x->buffer.buf_temp);
         object_free(x->tclock);
         object_free(x->messout);
     }
 }
 
-void karma_buf_dblclick(t_karma* x) { buffer_view(buffer_ref_getobject(x->buf)); }
+void karma_buf_dblclick(t_karma* x) { buffer_view(buffer_ref_getobject(x->buffer.buf)); }
 
 
 // called by 'karma_dsp64' method
 void karma_buf_setup(t_karma* x, t_symbol* s)
 {
     t_buffer_obj* buf;
-    x->bufname = s;
+    x->buffer.bufname = s;
 
-    if (!x->buf)
-        x->buf = buffer_ref_new((t_object*)x, s);
+    if (!x->buffer.buf)
+        x->buffer.buf = buffer_ref_new((t_object*)x, s);
     else
-        buffer_ref_set(x->buf, s);
+        buffer_ref_set(x->buffer.buf, s);
 
-    buf = buffer_ref_getobject(x->buf);
+    buf = buffer_ref_getobject(x->buffer.buf);
 
     if (buf == NULL) {
-        x->buf = 0;
+        x->buffer.buf = 0;
         // object_error((t_object *)x, "there is no buffer~ named %s",
         // s->s_name);
     } else {
@@ -1081,9 +1085,9 @@ void karma_buf_setup(t_karma* x, t_symbol* s)
         x->maxhead = x->playhead = 0.0;
         x->recordhead = -1;
         kh_init_buffer_properties(x, buf);
-        x->bvsnorm = x->vsnorm * (x->bsr / (double)x->bframes);
+        x->bvsnorm = x->vsnorm * (x->buffer.bsr / (double)x->buffer.bframes);
         x->minloop = x->startloop = 0.0;
-        x->maxloop = x->endloop = (x->bframes - 1); // * ((x->bchans > 1) ?
+        x->maxloop = x->endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1) ?
                                                     // x->bchans : 1);
         x->selstart = 0.0;
         x->selection = 1.0;
@@ -1102,16 +1106,16 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
         modframes = buffer_getframecount(b);
         modbmsr = buffer_getmillisamplerate(b);
 
-        if (((x->bchans != modchans) || (x->bframes != modframes))
-            || (x->bmsr != modbmsr)) {
-            x->bsr = modbsr;
-            x->bmsr = modbmsr;
+        if (((x->buffer.bchans != modchans) || (x->buffer.bframes != modframes))
+            || (x->buffer.bmsr != modbmsr)) {
+            x->buffer.bsr = modbsr;
+            x->buffer.bmsr = modbmsr;
             x->srscale = modbsr / x->ssr; // x->ssr / modbsr;
-            x->bframes = modframes;
-            x->bchans = modchans;
+            x->buffer.bframes = modframes;
+            x->buffer.bchans = modchans;
             x->nchans = (modchans < x->ochans) ? modchans : x->ochans; // MIN
             x->minloop = x->startloop = 0.0;
-            x->maxloop = x->endloop = (x->bframes - 1); // * ((modchans > 1) ?
+            x->maxloop = x->endloop = (x->buffer.bframes - 1); // * ((modchans > 1) ?
                                                         // modchans : 1);
             x->bvsnorm = x->vsnorm * (modbsr / (double)modframes);
 
@@ -1141,7 +1145,7 @@ void kh_buf_values_internal(
     high = temphigh;
 
     if (caller) { // only if called from 'karma_buf_change_internal()'
-        buf = buffer_ref_getobject(x->buf);
+        buf = buffer_ref_getobject(x->buffer.buf);
 
         kh_init_buffer_properties(x, buf);
 
@@ -1151,9 +1155,9 @@ void kh_buf_values_internal(
     }
 
     // bchans    = x->bchans;
-    bframesm1 = (x->bframes - 1);
-    bframesms = (double)bframesm1 / x->bmsr;             // buffersize in milliseconds
-    bvsnorm = x->vsnorm * (x->bsr / (double)x->bframes); // vectorsize in (double) % 0..1
+    bframesm1 = (x->buffer.bframes - 1);
+    bframesms = (double)bframesm1 / x->buffer.bmsr;             // buffersize in milliseconds
+    bvsnorm = x->vsnorm * (x->buffer.bsr / (double)x->buffer.bframes); // vectorsize in (double) % 0..1
                                                          // (phase) units of buffer~
     bvsnorm05 = bvsnorm * 0.5;                           // half vectorsize (normalised)
     x->bvsnorm = bvsnorm;
@@ -1571,12 +1575,12 @@ void karma_clock_list(t_karma* x)
 
     if (rlgtz) // ('reportlist 0' == off, else milliseconds)
     {
-        long frames = x->bframes - 1; // !! no '- 1' ??
+        long frames = x->buffer.bframes - 1; // !! no '- 1' ??
         long maxloop = x->maxloop;
         long minloop = x->minloop;
         long setloopsize;
 
-        double bmsr = x->bmsr;
+        double bmsr = x->buffer.bmsr;
         double playhead = x->playhead;
         double selection = x->selection;
         double normalisedposition;
@@ -1725,7 +1729,7 @@ void karma_select_start(
 
         if (x->directionorig < 0) // if originally in reverse
         {
-            bfrmaesminusone = x->bframes - 1;
+            bfrmaesminusone = x->buffer.bframes - 1;
 
             x->startloop = CLAMP(
                 (bfrmaesminusone - x->maxloop) + (positionstart * setloopsize),
@@ -1774,7 +1778,7 @@ void karma_select_size(t_karma* x, double duration) // duration = "window" float
 
         if (x->directionorig < 0) // if originally in reverse
         {
-            bfrmaesminusone = x->bframes - 1;
+            bfrmaesminusone = x->buffer.bframes - 1;
 
             if (x->endloop > bfrmaesminusone) {
                 x->endloop = (bfrmaesminusone - setloopsize)
@@ -1846,7 +1850,7 @@ t_bool _clear_buffer(t_buffer_obj* buf, long bframes, long rchans)
 
 void karma_record(t_karma* x)
 {
-    t_buffer_obj*   buf = buffer_ref_getobject(x->buf);
+    t_buffer_obj*   buf = buffer_ref_getobject(x->buffer.buf);
     control_state_t sc = CONTROL_STATE_ZERO;
     human_state_t   sh = x->statehuman;
     t_bool          record = x->record;
@@ -1881,8 +1885,8 @@ void karma_record(t_karma* x)
     } else if (!go) {
         init = 1;
         if (buf) {
-            long rchans = x->bchans;
-            long bframes = x->bframes;
+            long rchans = x->buffer.bchans;
+            long bframes = x->buffer.bframes;
             _clear_buffer(buf, bframes, rchans);
         }
         sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
@@ -1904,7 +1908,7 @@ void karma_append(t_karma* x)
     if (x->recordinit) {
         if ((!x->append) && (!x->loopdetermine)) {
             x->append = 1;
-            x->maxloop = (x->bframes - 1);
+            x->maxloop = (x->buffer.bframes - 1);
             x->statecontrol = CONTROL_STATE_APPEND;
             x->statehuman = HUMAN_STATE_APPEND;
             x->stopallowed = 1;
@@ -1971,10 +1975,10 @@ t_max_err karma_buf_notify(t_karma* x, t_symbol* s, t_symbol* msg, void* sndr, v
     //  gensym("getname"));
 
     //  if (bufnamecheck == x->bufname) {   // check...
-    if (buffer_ref_exists(x->buf)) { // this hack does not really work...
+    if (buffer_ref_exists(x->buffer.buf)) { // this hack does not really work...
         if (msg == ps_buffer_modified)
             x->buf_modified = true;                          // set flag
-        return buffer_ref_notify(x->buf, s, msg, sndr, dat); // ...return
+        return buffer_ref_notify(x->buffer.buf, s, msg, sndr, dat); // ...return
     } else {
         return MAX_ERR_NONE;
     }
@@ -1988,9 +1992,9 @@ void karma_dsp64(
     x->vsnorm = (double)vecount / srate; // x->vs / x->ssr;
     x->clockgo = 1;
 
-    if (x->bufname != 0) {
+    if (x->buffer.bufname != 0) {
         if (!x->initinit)
-            karma_buf_setup(x, x->bufname); // does 'x->bvsnorm'    // !! this
+            karma_buf_setup(x, x->buffer.bufname); // does 'x->bvsnorm'    // !! this
                                             // should be defered ??
         x->speedconnect = count[1];         // speed is 2nd inlet
         object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
@@ -2184,7 +2188,7 @@ void karma_mono_perform(
     long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
     long initiallow, initialhigh;
 
-    t_buffer_obj* buf = buffer_ref_getobject(x->buf);
+    t_buffer_obj* buf = buffer_ref_getobject(x->buffer.buf);
     float*        b = buffer_locksamples(buf);
 
     record = x->record;
@@ -2205,9 +2209,9 @@ void karma_mono_perform(
     recfadeflag = x->recfadeflag;
     recordhead = x->recordhead;
     alternateflag = x->alternateflag;
-    pchans = x->bchans;
+    pchans = x->buffer.bchans;
     srscale = x->srscale;
-    frames = x->bframes;
+    frames = x->buffer.bframes;
     triginit = x->triginit;
     jumpflag = x->jumpflag;
     append = x->append;
@@ -2621,33 +2625,33 @@ static inline t_bool kh_validate_buffer(t_karma* x, t_symbol* bufname)
         return false;
     }
 
-    x->bufname_temp = bufname;
+    x->buffer.bufname_temp = bufname;
 
-    if (!x->buf_temp) {
-        x->buf_temp = buffer_ref_new((t_object*)x, bufname);
+    if (!x->buffer.buf_temp) {
+        x->buffer.buf_temp = buffer_ref_new((t_object*)x, bufname);
     } else {
-        buffer_ref_set(x->buf_temp, bufname);
+        buffer_ref_set(x->buffer.buf_temp, bufname);
     }
 
-    buf_temp = buffer_ref_getobject(x->buf_temp);
+    buf_temp = buffer_ref_getobject(x->buffer.buf_temp);
 
     if (buf_temp == NULL) {
         object_warn(
             (t_object*)x, "cannot find any buffer~ named %s, ignoring", bufname->s_name);
-        x->buf_temp = 0;
-        object_free(x->buf_temp);
+        x->buffer.buf_temp = 0;
+        object_free(x->buffer.buf_temp);
         return false;
     }
 
-    x->buf_temp = 0;
-    object_free(x->buf_temp);
+    x->buffer.buf_temp = 0;
+    object_free(x->buffer.buf_temp);
 
     // Set up the main buffer reference
-    x->bufname = bufname;
-    if (!x->buf) {
-        x->buf = buffer_ref_new((t_object*)x, bufname);
+    x->buffer.bufname = bufname;
+    if (!x->buffer.buf) {
+        x->buffer.buf = buffer_ref_new((t_object*)x, bufname);
     } else {
-        buffer_ref_set(x->buf, bufname);
+        buffer_ref_set(x->buffer.buf, bufname);
     }
 
     return true;
