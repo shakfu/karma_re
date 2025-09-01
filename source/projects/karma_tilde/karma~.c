@@ -128,7 +128,9 @@ static t_symbol *ps_originalloop;
 
 static t_class  *karma_class = NULL;
 
+// --------------------------------------------------------------------------------------
 // forward declarations of private helper functions
+
 static inline double kh_linear_interp(double f, double x, double y);
 static inline double kh_cubic_interp(double f, double w, double x, double y, double z);
 static inline double kh_spline_interp(double f, double w, double x, double y, double z);
@@ -248,7 +250,7 @@ static inline double kh_process_audio_interpolation(
     float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record);
 
 
-
+// --------------------------------------------------------------------------------------
 
 
 // Linear Interp
@@ -876,7 +878,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         }
 
         x->timing.recordhead = -1;
-        x->reportlist = 50;                // ms
+        x->reportlist = 50;                          // ms
         x->fade.snrramp = x->fade.globalramp = 256;  // samps...
         x->fade.playfade = x->fade.recordfade = 257; // ...
         x->timing.ssr = sys_getsr();
@@ -910,7 +912,8 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->audio.pokesteps = 0;
         x->state.wrapflag = 0;
         x->state.loopdetermine = 0;
-        x->audio.writeval1 = x->audio.writeval2 = x->audio.writeval3 = x->audio.writeval4 = 0;
+        x->audio.writeval1 = x->audio.writeval2 = x->audio.writeval3 = x->audio.writeval4
+            = 0;
         x->timing.maxhead = 0.0;
         x->timing.playhead = 0.0;
         x->loop.initiallow = -1;
@@ -923,7 +926,7 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
 
         if (bufname != 0)
             x->buffer.bufname = bufname; // !! setup is in 'karma_buf_setup()' called
-                                  // by 'karma_dsp64()'...
+                                         // by 'karma_dsp64()'...
         /*      else                        // ...(this means double-clicking
            karma~ does not show buffer~ window until DSP turned on, ho hum)
                     object_error((t_object *)x, "requires an associated buffer~
@@ -1010,10 +1013,11 @@ void karma_buf_setup(t_karma* x, t_symbol* s)
         x->timing.maxhead = x->timing.playhead = 0.0;
         x->timing.recordhead = -1;
         kh_init_buffer_properties(x, buf);
-        x->timing.bvsnorm = x->timing.vsnorm * (x->buffer.bsr / (double)x->buffer.bframes);
+        x->timing.bvsnorm = x->timing.vsnorm
+            * (x->buffer.bsr / (double)x->buffer.bframes);
         x->loop.minloop = x->loop.startloop = 0.0;
-        x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1) ?
-                                                    // x->bchans : 1);
+        x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1)
+                                                                     // ? x->bchans : 1);
         x->timing.selstart = 0.0;
         x->timing.selection = 1.0;
     }
@@ -1038,10 +1042,12 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
             x->timing.srscale = modbsr / x->timing.ssr; // x->ssr / modbsr;
             x->buffer.bframes = modframes;
             x->buffer.bchans = modchans;
-            x->buffer.nchans = (modchans < x->buffer.ochans) ? modchans : x->buffer.ochans; // MIN
+            x->buffer.nchans = (modchans < x->buffer.ochans) ? modchans
+                                                             : x->buffer.ochans; // MIN
             x->loop.minloop = x->loop.startloop = 0.0;
-            x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((modchans > 1) ?
-                                                        // modchans : 1);
+            x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((modchans >
+                                                                         // 1) ? modchans
+                                                                         // : 1);
             x->timing.bvsnorm = x->timing.vsnorm * (modbsr / (double)modframes);
 
             karma_select_size(x, x->timing.selection);
@@ -1081,10 +1087,11 @@ void kh_buf_values_internal(
 
     // bchans    = x->bchans;
     bframesm1 = (x->buffer.bframes - 1);
-    bframesms = (double)bframesm1 / x->buffer.bmsr;             // buffersize in milliseconds
-    bvsnorm = x->timing.vsnorm * (x->buffer.bsr / (double)x->buffer.bframes); // vectorsize in (double) % 0..1
-                                                         // (phase) units of buffer~
-    bvsnorm05 = bvsnorm * 0.5;                           // half vectorsize (normalised)
+    bframesms = (double)bframesm1 / x->buffer.bmsr; // buffersize in milliseconds
+    bvsnorm = x->timing.vsnorm
+        * (x->buffer.bsr / (double)x->buffer.bframes); // vectorsize in (double) % 0..1
+                                                       // (phase) units of buffer~
+    bvsnorm05 = bvsnorm * 0.5;                         // half vectorsize (normalised)
     x->timing.bvsnorm = bvsnorm;
 
     // by this stage in routine, if LOW < 0., it has not been set and should be
@@ -1458,8 +1465,7 @@ void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop .
                                                 // ...go straight to calling function with
                                                 // initial loop variables...
                                                 //              if (!x->state.recordinit)
-                kh_buf_values_internal(
-                    x, initiallow, initialhigh, points_flag, callerid);
+                kh_buf_values_internal(x, initiallow, initialhigh, points_flag, callerid);
                 //              else
                 //                  return;
 
@@ -1485,7 +1491,7 @@ void karma_resetloop(t_karma* x) // " resetloop " message only
                              // internally
     bool   callerid = false; // false = called from "resetloop"
     double initiallow = (double)x->loop.initiallow;   // initial low/high points stored
-                                                 // as long...
+                                                      // as long...
     double initialhigh = (double)x->loop.initialhigh; // ...
 
     //  if (!x->state.recordinit)
@@ -1528,10 +1534,10 @@ void karma_clock_list(t_karma* x)
 
         t_bool directflag = x->state.directionorig < 0; // !! reverse = 1, forward = 0
         t_bool record = x->state.record; // pointless (and actually is 'record' or
-                                   // 'overdub')
+                                         // 'overdub')
         t_bool go = x->state.go;         // pointless (and actually this is on whenever
-                                   // transport is,...
-                                   // ...not stricly just 'play')
+                                         // transport is,...
+                                         // ...not stricly just 'play')
         human_state_t statehuman = x->state.statehuman;
         //  ((playhead-(frames-maxloop))/setloopsize) :
         //  ((playhead-startloop)/setloopsize)  // ??
@@ -1730,7 +1736,7 @@ void karma_stop(t_karma* x)
     if (x->state.initinit) {
         if (x->state.stopallowed) {
             x->state.statecontrol = x->state.alternateflag ? CONTROL_STATE_STOP_ALT
-                                               : CONTROL_STATE_STOP_REGULAR;
+                                                           : CONTROL_STATE_STOP_REGULAR;
             x->state.append = 0;
             x->state.statehuman = HUMAN_STATE_STOP;
             x->state.stopallowed = 0;
@@ -1746,7 +1752,7 @@ void karma_play(t_karma* x)
         x->fade.snrfade = 0.0; // !! should disable ??
     } else if ((x->state.record) || (x->state.append)) {
         x->state.statecontrol = x->state.alternateflag ? CONTROL_STATE_PLAY_ALT
-                                           : CONTROL_STATE_RECORD_OFF;
+                                                       : CONTROL_STATE_RECORD_OFF;
     } else {
         x->state.statecontrol = CONTROL_STATE_PLAY_ON;
     }
@@ -1902,7 +1908,7 @@ t_max_err karma_buf_notify(t_karma* x, t_symbol* s, t_symbol* msg, void* sndr, v
     //  if (bufnamecheck == x->bufname) {   // check...
     if (buffer_ref_exists(x->buffer.buf)) { // this hack does not really work...
         if (msg == ps_buffer_modified)
-            x->state.buf_modified = true;                          // set flag
+            x->state.buf_modified = true;                           // set flag
         return buffer_ref_notify(x->buffer.buf, s, msg, sndr, dat); // ...return
     } else {
         return MAX_ERR_NONE;
@@ -1919,9 +1925,9 @@ void karma_dsp64(
 
     if (x->buffer.bufname != 0) {
         if (!x->state.initinit)
-            karma_buf_setup(x, x->buffer.bufname); // does 'x->timing.bvsnorm'    // !! this
-                                            // should be defered ??
-        x->speedconnect = count[1];         // speed is 2nd inlet
+            karma_buf_setup(x, x->buffer.bufname); // does 'x->timing.bvsnorm'    // !!
+                                                   // this should be defered ??
+        x->speedconnect = count[1]; // speed is 2nd inlet
         object_method(dsp64, gensym("dsp_add64"), x, karma_mono_perform, 0, NULL);
         if (!x->state.initinit) {
             karma_select_size(x, 1.);
@@ -2032,12 +2038,13 @@ static inline void kh_initialize_perform_vars(
 }
 
 // Helper function: Handle direction changes
-static inline void kh_process_direction_change(
-    t_karma *x, float *b, char directionprev, char direction)
+static inline void kh_process_direction_change(t_karma* x, float* b, char directionprev, char direction)
 {
     if (directionprev != direction) {
         if (x->state.record && x->fade.globalramp) {
-            kh_ease_bufoff(x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.recordhead, -direction, x->fade.globalramp);
+            kh_ease_bufoff(
+                x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.recordhead,
+                -direction, x->fade.globalramp);
             x->fade.recordfade = x->fade.recfadeflag = 0;
             // recordhead = -1; // Note: this should be handled by caller
         }
@@ -2047,11 +2054,13 @@ static inline void kh_process_direction_change(
 
 // Helper function: Handle record on/off transitions
 static inline void kh_process_record_toggle(
-    t_karma *x, float *b, double accuratehead, char direction, double speed, t_bool *dirt)
+    t_karma* x, float* b, double accuratehead, char direction, double speed, t_bool* dirt)
 {
     if ((x->state.record - x->state.recordprev) < 0) { // samp @record-off
         if (x->fade.globalramp)
-            kh_ease_bufoff(x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.recordhead, direction, x->fade.globalramp);
+            kh_ease_bufoff(
+                x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.recordhead,
+                direction, x->fade.globalramp);
         x->timing.recordhead = -1;
         *dirt = 1;
     } else if ((x->state.record - x->state.recordprev) > 0) { // samp @record-on
@@ -2060,7 +2069,8 @@ static inline void kh_process_record_toggle(
             x->fade.snrfade = 0.0;
         if (x->fade.globalramp)
             kh_ease_bufoff(
-                x->buffer.bframes - 1, b, x->buffer.nchans, accuratehead, -direction, x->fade.globalramp);
+                x->buffer.bframes - 1, b, x->buffer.nchans, accuratehead, -direction,
+                x->fade.globalramp);
     }
 }
 
@@ -2142,10 +2152,10 @@ void karma_mono_perform(
 
     // Initialize performance variables using helper function
     kh_initialize_perform_vars(x, &accuratehead, &playhead, &wrapflag);
-    
+
     // Access other variables directly from nested structs
     maxhead = x->timing.maxhead;
-    jumphead = x->timing.jumphead; 
+    jumphead = x->timing.jumphead;
     pokesteps = x->audio.pokesteps;
     snrfade = x->fade.snrfade;
     globalramp = (double)x->fade.globalramp;
@@ -2173,15 +2183,13 @@ void karma_mono_perform(
         direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
 
         // Handle direction changes using helper function
-        kh_process_direction_change(
-            x, b, directionprev, direction);
+        kh_process_direction_change(x, b, directionprev, direction);
         if (directionprev != direction && record && globalramp) {
             recordhead = -1; // Special case handling for recordhead
         }
 
         // Handle record on/off transitions using helper function
-        kh_process_record_toggle(
-            x, b, accuratehead, direction, speed, &dirt);
+        kh_process_record_toggle(x, b, accuratehead, direction, speed, &dirt);
         recordprev = record;
 
         if (!loopdetermine) {
@@ -2210,7 +2218,8 @@ void karma_mono_perform(
 
                     // Handle loop boundary wrapping and jumping
                     kh_process_loop_boundary(
-                        x, b, &accuratehead, speed, direction, setloopsize, wrapflag, jumpflag);
+                        x, b, &accuratehead, speed, direction, setloopsize, wrapflag,
+                        jumpflag);
 
                     // Clear jumpflag if conditions are met
                     if (jumpflag) {
@@ -2314,8 +2323,7 @@ void karma_mono_perform(
             if (go) {
                 if (triginit) {
                     if (jumpflag) {
-                        kh_process_jump_logic(
-                            x, b, &accuratehead, &jumpflag, direction);
+                        kh_process_jump_logic(x, b, &accuratehead, &jumpflag, direction);
                     } else if (append) { // append
                         kh_process_initial_loop_creation(
                             x, b, &accuratehead, direction, &triginit);
@@ -2459,7 +2467,7 @@ void karma_mono_perform(
     }
     buffer_unlocksamples(buf);
 
-    if (x->state.clockgo) {              // list-outlet stuff
+    if (x->state.clockgo) {        // list-outlet stuff
         clock_delay(x->tclock, 0); // why ??
         x->state.clockgo = 0;
     } else if ((!go) || (x->reportlist <= 0)) { // why '!go' ??
@@ -2558,22 +2566,21 @@ static inline t_bool kh_validate_buffer(t_karma* x, t_symbol* bufname)
     return true;
 }
 
-static inline void
-kh_parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_flag)
+static inline void kh_parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_flag)
 {
     if (loop_points_sym == ps_dummy) {
         *loop_points_flag = 2;
     } else if (
         (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE"))
-        || (loop_points_sym == gensym("ph"))) {
+                                      || (loop_points_sym == gensym("ph"))) {
         *loop_points_flag = 0;
     } else if (
         (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES"))
-        || (loop_points_sym == gensym("samps"))) {
+                                        || (loop_points_sym == gensym("samps"))) {
         *loop_points_flag = 1;
     } else if (
         (loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS"))
-        || (loop_points_sym == gensym("ms"))) {
+                                             || (loop_points_sym == gensym("ms"))) {
         *loop_points_flag = 2;
     } else {
         *loop_points_flag = 2; // default to milliseconds
@@ -2775,21 +2782,22 @@ static inline void kh_process_recording_fade(
 }
 
 static inline void kh_process_jump_logic(
-    t_karma *x, float *b, double *accuratehead, char *jumpflag, char direction)
+    t_karma* x, float* b, double* accuratehead, char* jumpflag, char direction)
 {
     if (*jumpflag) { // jump
         if (x->state.directionorig >= 0) {
             *accuratehead = x->timing.jumphead * x->timing.maxhead; // !! maxhead !!
         } else {
-            *accuratehead = (x->buffer.bframes - 1) - (((x->buffer.bframes - 1) - x->timing.maxhead) * x->timing.jumphead);
+            *accuratehead = (x->buffer.bframes - 1)
+                - (((x->buffer.bframes - 1) - x->timing.maxhead) * x->timing.jumphead);
         }
         *jumpflag = 0;
         x->fade.snrfade = 0.0;
         if (x->state.record) {
             if (x->fade.globalramp) {
                 kh_ease_bufon(
-                    x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction,
-                    x->fade.globalramp);
+                    x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead,
+                    x->timing.recordhead, direction, x->fade.globalramp);
                 x->fade.recordfade = 0;
             }
             x->fade.recfadeflag = 0;
@@ -2921,12 +2929,13 @@ static inline void kh_process_initial_loop_ipoke_recording(
 }
 
 static inline void kh_process_initial_loop_boundary_constraints(
-    t_karma *x, float *b, double *accuratehead, double speed, char direction)
+    t_karma* x, float* b, double* accuratehead, double speed, char direction)
 {
     long   setloopsize;
     double speedsrscaled;
 
-    setloopsize = x->loop.maxloop - x->loop.minloop; // not really required here because initial loop ??
+    setloopsize = x->loop.maxloop
+        - x->loop.minloop; // not really required here because initial loop ??
     speedsrscaled = speed * x->timing.srscale;
     if (x->state.record) // why 1024 ??
         speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024))
@@ -2934,15 +2943,17 @@ static inline void kh_process_initial_loop_boundary_constraints(
             : speedsrscaled;
     *accuratehead = *accuratehead + speedsrscaled;
 
-    if (direction == x->state.directionorig) { // buffer~ boundary constraints and registry of
-                                      // maximum distance traversed
+    if (direction
+        == x->state.directionorig) { // buffer~ boundary constraints and registry of
+                                     // maximum distance traversed
         if (*accuratehead > (x->buffer.bframes - 1)) {
             *accuratehead = 0.0;
             x->state.record = x->state.append;
             if (x->state.record) {
                 if (x->fade.globalramp) {
                     kh_ease_bufoff(
-                        x->buffer.bframes - 1, b, x->buffer.nchans, (x->buffer.bframes - 1), -direction,
+                        x->buffer.bframes - 1, b, x->buffer.nchans,
+                        (x->buffer.bframes - 1), -direction,
                         x->fade.globalramp); // maxloop ??
                     x->timing.recordhead = -1;
                     x->fade.recfadeflag = x->fade.recordfade = 0;
@@ -2957,7 +2968,8 @@ static inline void kh_process_initial_loop_boundary_constraints(
             if (x->state.record) {
                 if (x->fade.globalramp) {
                     kh_ease_bufoff(
-                        x->buffer.bframes - 1, b, x->buffer.nchans, x->loop.minloop, -direction,
+                        x->buffer.bframes - 1, b, x->buffer.nchans, x->loop.minloop,
+                        -direction,
                         x->fade.globalramp); // 0.0  // ??
                     x->timing.recordhead = -1;
                     x->fade.recfadeflag = x->fade.recordfade = 0;
@@ -2968,7 +2980,8 @@ static inline void kh_process_initial_loop_boundary_constraints(
             x->timing.maxhead = 0.0;
         } else { // <- track max write position
             if (((x->state.directionorig >= 0) && (x->timing.maxhead < *accuratehead))
-                || ((x->state.directionorig < 0) && (x->timing.maxhead > *accuratehead))) {
+                || ((x->state.directionorig < 0)
+                    && (x->timing.maxhead > *accuratehead))) {
                 x->timing.maxhead = *accuratehead;
             }
         }
@@ -2977,7 +2990,8 @@ static inline void kh_process_initial_loop_boundary_constraints(
             *accuratehead = x->timing.maxhead + *accuratehead;
             if (x->fade.globalramp) {
                 kh_ease_bufoff(
-                    x->buffer.bframes - 1, b, x->buffer.nchans, x->loop.minloop, -direction, x->fade.globalramp); // 0.0  // ??
+                    x->buffer.bframes - 1, b, x->buffer.nchans, x->loop.minloop,
+                    -direction, x->fade.globalramp); // 0.0  // ??
                 x->timing.recordhead = -1;
                 x->fade.recfadeflag = x->fade.recordfade = 0;
             }
@@ -2987,7 +3001,8 @@ static inline void kh_process_initial_loop_boundary_constraints(
             *accuratehead = x->timing.maxhead + (*accuratehead - (x->buffer.bframes - 1));
             if (x->fade.globalramp) {
                 kh_ease_bufoff(
-                    x->buffer.bframes - 1, b, x->buffer.nchans, (x->buffer.bframes - 1), -direction,
+                    x->buffer.bframes - 1, b, x->buffer.nchans, (x->buffer.bframes - 1),
+                    -direction,
                     x->fade.globalramp); // maxloop ??
                 x->timing.recordhead = -1;
                 x->fade.recfadeflag = x->fade.recordfade = 0;
