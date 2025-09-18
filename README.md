@@ -19,7 +19,7 @@ I personally found the code to be very complex and difficult to understand, so I
 
 ## Status
 
-- This is still a work in progress but the refactored mono version seemingly works ok.
+- This is still a work in progress but the refactored mono version seemingly works ok, and an experimental stereo version is also included based on the refactored code.
 
 Here are some graphs to illustrate the changes:
 

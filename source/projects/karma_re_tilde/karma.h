@@ -91,3 +91,7 @@ void karma_dsp64(
 void karma_mono_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr);
+
+void karma_stereo_perform(
+    t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
+    long vcount, long flgs, void* usr);
