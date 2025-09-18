@@ -88,10 +88,17 @@ void karma_clock_list(t_karma* x);
 void karma_dsp64(
     t_karma* x, t_object* dsp64, short* count, double srate, long vecount, long flags);
 
+long karma_multichanneloutputs(t_karma* x, int index);
+long karma_inputchanged(t_karma* x, long index, long count);
+
 void karma_mono_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr);
 
 void karma_stereo_perform(
+    t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
+    long vcount, long flgs, void* usr);
+
+void karma_poly_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr);
