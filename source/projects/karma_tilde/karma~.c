@@ -188,8 +188,9 @@ static inline void kh_process_playfade_state(
     t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record);
 
 static inline void kh_process_loop_initialization(
-    t_karma *x, float *b, double *accuratehead, char direction, 
-    long *setloopsize, t_bool *wrapflag, char *recendmark_ptr);
+    t_karma *x, float *b, double *accuratehead, char direction,
+    long *setloopsize, t_bool *wrapflag, char *recendmark_ptr,
+    t_bool triginit, t_bool jumpflag);
 
 static inline void kh_process_initial_loop_creation(
     t_karma *x, float *b, double *accuratehead, char direction, t_bool *triginit_ptr);
@@ -622,10 +623,11 @@ static inline void kh_process_playfade_state(
 
 // Helper function to handle loop initialization and calculation
 static inline void kh_process_loop_initialization(
-    t_karma *x, float *b, double *accuratehead, char direction, 
-    long *setloopsize, t_bool *wrapflag, char *recendmark_ptr)
+    t_karma *x, float *b, double *accuratehead, char direction,
+    long *setloopsize, t_bool *wrapflag, char *recendmark_ptr,
+    t_bool triginit, t_bool jumpflag)
 {
-    if (x->state.triginit) {
+    if (triginit) {
         if (x->state.recendmark) {  // calculate end of loop
             if (x->state.directionorig >= 0) {
                 x->loop.maxloop = CLAMP(x->timing.maxhead, 4096, x->buffer.bframes - 1);
@@ -665,7 +667,7 @@ static inline void kh_process_loop_initialization(
             *recendmark_ptr = 0;
         } else {    // jump / play (inside 'window')
             *setloopsize = x->loop.maxloop - x->loop.minloop;
-            if (x->state.jumpflag)
+            if (jumpflag)
                 *accuratehead = (x->state.directionorig >= 0) ? ((x->timing.jumphead * (*setloopsize)) + x->loop.minloop) : (((x->buffer.bframes - 1) - (x->loop.maxloop)) + (x->timing.jumphead * (*setloopsize)));
             else
                 *accuratehead = (direction < 0) ? x->loop.endloop : x->loop.startloop;
@@ -2205,7 +2207,8 @@ void karma_mono_perform(
 
                 // Handle loop initialization and calculation
                 kh_process_loop_initialization(
-                    x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark);
+                    x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark,
+                    triginit, jumpflag);
                 if (triginit) {
                     recordhead = -1;
                     triginit = 0;
