@@ -16,7 +16,7 @@ define tidy-target
 endef
 
 
-.phony: all build dev format tidy complexity link clean
+.phony: all build dev format tidy complexity complexity-re link clean
 
 all: build
 
@@ -43,6 +43,9 @@ tidy:
 
 complexity:
 	@complexity source/projects/karma_tilde/karma\~.c
+
+complexity-re:
+	@complexity source/projects/karma_re_tilde/karma_re\~.c
 
 link:
 	$(call section,"symlink to Max 'Packages' Directories")
