@@ -2,22 +2,24 @@
 
 As I have used Rodrigo Constanzo's & raja's & pete's amazing [karma~1.6](https://github.com/rconstanzo/karma) Max/MSP audio looper external in [another Max project](https://github.com/shakfu/groovin), I was curious enough about how it worked that I tried to read the c code of the external. 
 
-I personally found the code to be very complex and difficult to understand, so I started to try to make it more understandable for me:
+I personally found the code to be very complex and difficult to understand, so I started to try to make it more understandable for me by doing the following:
 
-- Drop stereo and quad perform functions and just focus on refactoring the mono perform function
+- Drop the stereo and quad perform functions and just focus on refactoring the mono perform function
 
 - Extract smaller functions from complex functions
 
-- Add enums to make things more understandable
+- Add meaningful enums to make things more understandable
 
-- Use clang-format, clang-tidy, and other AI tools to help in the process
+- Use `clang-format`, `clang-tidy`, and other AI tools to help in the refactoring process
 
-- Use code analysis tools like cflow to figure out the overall call graph
+- Use complexity tools like `gnu-complexity` to target the most complex parts of the code
+
+- Use code analysis tools like `cflow` to figure out the overall call graph.
 
 
 ## Status
 
-- This is still a work in progress but the refactored mono version seemingly works ok. 
+- This is still a work in progress but the refactored mono version seemingly works ok.
 
 Here are some graphs to illustrate the changes:
 
