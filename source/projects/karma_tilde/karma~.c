@@ -1,6 +1,90 @@
-#include "karma.h"
+/**
+    @file
+    karma~.c
+ 
+    @ingroup
+    msp
+ 
+    @name
+    karma~
+    
+    @realname
+    karma~
+ 
+    @type
+    object
+    
+    @module
+    karma
+ 
+    @author
+    raja (original to version 1.4) & pete (version 1.5 and 1.6)
+    
+    @digest
+    Varispeed Audio Looper
+    
+    @description
+    <o>karma~</o> is a dynamically lengthed varispeed record/playback looper object with complex functionality
+ 
+    @discussion
+    Rodrigo is crazy
+ 
+    @category
+    karma, looper, varispeed, msp, audio, external
+ 
+    @keywords
+    loop, looping, looper, varispeed, playback, buffer
+ 
+    @seealso
+    buffer~, groove~, record~, poke~, ipoke~
+    
+    @owner
+    Rodrigo Constanzo
+ __________________________________________________________________
+ */
 
-struct t_karma {
+
+//  //  //  karma~ version 1.6 by pete, basically karma~ version 1.4 by raja...
+//  //  //  ...with some bug fixes and code refactoring
+//  //  //  November 2017
+//  //  //  N.B. - [at]-commenting for 'DoctorMax' auto documentation
+
+//  //  //  TODO version 1.6:
+//  //  //  fix: a bunch of bugs & stuff, incl. ...
+//  //  //  - perform loop in/out updating relating to inability to call multiple methods to the object ...
+//  //  //  ... by using comma-separated message boxes (etc) <<-- big bug, probably unfixable until version 2 rewrite
+//  //  //  - when switching buffer whilst recording, new buffer does not behave like 'inital loop' on 'stop' / 'play'
+
+//  //  //  TODO version 2.0:
+//  //  //  rewrite from scratch, take multiple perform routines out and put
+//  //  //  interpolation routines and ipoke out into seperate files
+//  //  //  then will be able to integrate 'rubberband' and add better ipoke interpolations etc
+//  //  //  also look into raja's new 'crossfade' ideas as an optional alternative to 'switch & ramp'
+//  //  //  and possibly do seperate externals for different elements (e.g. karmaplay~, karmapoke~, karmaphase~, ...)
+
+
+#include "stdlib.h"
+#include "math.h"
+
+#include "ext.h"            // max
+#include "ext_obex.h"       // attributes
+
+#include "ext_buffer.h"     // buffer~
+#include "z_dsp.h"          // msp
+
+#include "ext_atomic.h"
+
+
+// Linear Interp
+#define LINEAR_INTERP(f, x, y) (x + f*(y - x))
+// Hermitic Cubic Interp, 4-point 3rd-order, ( James McCartney / Alex Harker )
+#define CUBIC_INTERP(f, w, x, y, z) ((((0.5*(z - w) + 1.5*(x - y))*f + (w - 2.5*x + y + y - 0.5*z))*f + (0.5*(y - w)))*f + x)
+// Catmull-Rom Spline Interp, 4-point 3rd-order, ( Paul Breeuwsma / Paul Bourke )
+#define SPLINE_INTERP(f, w, x, y, z) (((-0.5*w + 1.5*x - 1.5*y + 0.5*z)*f*f*f) + ((w - 2.5*x + y + y - 0.5*z)*f*f) + ((-0.5*w + 0.5*y)*f) + x)
+// ^^ 'SPLINE_INTERP' should be 'void inline' to save on f multiplies   // ^^                               // ^^
+
+
+typedef struct _karma {
     
     t_pxobject      k_ob;
     t_buffer_ref    *buf;
@@ -96,37 +180,57 @@ struct t_karma {
 
     void    *messout;       // list outlet pointer
     void    *tclock;        // list timer pointer
-};
+
+} t_karma;
+
+t_max_err   karma_syncout_set(t_karma *x, t_object *attr, long argc, t_atom *argv);
+
+void       *karma_new(t_symbol *s, short argc, t_atom *argv);
+void        karma_free(t_karma *x);
+
+void        karma_float(t_karma *x, double speedfloat);
+void        karma_stop(t_karma *x);
+void        karma_play(t_karma *x);
+void        karma_record(t_karma *x);
+//void      karma_select_internal(t_karma *x, double selectionstart, double selectionlength);
+void        karma_select_start(t_karma *x, double positionstart);
+
+t_max_err   karma_buf_notify(t_karma *x, t_symbol *s, t_symbol *msg, void *sndr, void *dat);
+
+void        karma_assist(t_karma *x, void *b, long m, long a, char *s);
+void        karma_buf_dblclick(t_karma *x);
+
+void        karma_overdub(t_karma *x, double amplitude);
+void        karma_select_size(t_karma *x, double duration);
+//void      karma_setloop_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv);
+void        karma_setloop(t_karma *x, t_symbol *s, short ac, t_atom *av);
+void        karma_resetloop(t_karma *x);
+//void      karma_loop_multiply(t_karma *x, double multiplier); // <<-- TODO
+
+void        karma_buf_setup(t_karma *x, t_symbol *s);
+void        karma_buf_modify(t_karma *x, t_buffer_obj *b);
+void        karma_clock_list(t_karma *x);
+//void      karma_buf_values_internal(t_karma *x, double low, double high, long loop_points_flag, t_bool caller);
+//void      karma_buf_change_internal(t_karma *x, t_symbol *s, short argc, t_atom *argv);
+void        karma_buf_change(t_karma *x, t_symbol *s, short ac, t_atom *av);
+//void      karma_offset(t_karma *x, long channeloffset);   // <<-- TODO
+
+void        karma_jump(t_karma *x, double jumpposition);
+void        karma_append(t_karma *x);
+
+// dsp:
+void karma_dsp64(t_karma *x, t_object *dsp64, short *count, double srate, long vecount, long flags);
+// mono:
+void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
+// stereo:
+void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
+// quad:
+void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, double **outs, long nouts, long vcount, long flgs, void *usr);
 
 
-static t_symbol *ps_nothing;
-static t_symbol *ps_dummy; 
-static t_symbol *ps_buffer_modified;
-static t_symbol *ps_phase;
-static t_symbol *ps_samples;
-static t_symbol *ps_milliseconds;
-static t_symbol *ps_originalloop;
-
-static t_class  *karma_class = NULL;
-
-
-// Linear Interp
-static inline double linear_interp(double f, double x, double y)
-{
-    return (x + f*(y - x));
-}
-
-// Hermitic Cubic Interp, 4-point 3rd-order, ( James McCartney / Alex Harker )
-static inline double cubic_interp(double f, double w, double x, double y, double z)
-{
-    return ((((0.5*(z - w) + 1.5*(x - y))*f + (w - 2.5*x + y + y - 0.5*z))*f + (0.5*(y - w)))*f + x);
-}
-
-// Catmull-Rom Spline Interp, 4-point 3rd-order, ( Paul Breeuwsma / Paul Bourke )
-static inline double spline_interp(double f, double w, double x, double y, double z)
-{
-    return (((-0.5*w + 1.5*x - 1.5*y + 0.5*z)*pow(f,3)) + ((w - 2.5*x + y + y - 0.5*z)*pow(f,2)) + ((-0.5*w + 0.5*y)*f) + x);
-}
+static  t_symbol    *ps_nothing, *ps_dummy, *ps_buffer_modified;
+static  t_symbol    *ps_phase, *ps_samples, *ps_milliseconds, *ps_originalloop;
+static  t_class     *karma_class = NULL;
 
 
 // easing function for recording (with ipoke)
@@ -328,23 +432,102 @@ static inline void interp_index(t_ptr_int playhead, t_ptr_int *indx0, t_ptr_int 
     
     return;
 }
+/*
+// store initial loop recording points from perform loop - only call when required
+static inline void initial_points(t_ptr_int minloop, t_ptr_int maxloop, t_ptr_int *initlow, t_ptr_int *inithigh)
+{
+    *initlow    = minloop;  // in samples...
+    *inithigh   = maxloop;  // ...
 
+    return;
+}
+*/
+/*
+static inline void initial_points(t_bool force, t_bool init, t_bool determine, char mark, t_ptr_int *initlow, t_ptr_int *inithigh, t_ptr_int minloop, t_ptr_int maxloop)
+{
+    if (force) {    // "resetloop force" or "setloop reset force"
+        *initlow    = minloop;              // in samples...
+        *inithigh   = maxloop;              // ...
+    } else {        // "resetloop" or "setloop reset"
+        if (init) {             // recordinit
+            if (determine) {    // loopdetermine
+                if (mark) {     // recendmark
+                    *initlow    = minloop;  // in samples...
+                    *inithigh   = maxloop;  // ...
+                }
+            }
+        }
+    }
+
+    return;
+}
+*/
+
+//  //  //
 
 void ext_main(void *r)
 {
     t_class *c = class_new("karma~", (method)karma_new, (method)karma_free, (long)sizeof(t_karma), 0L, A_GIMME, 0);
 
+    // @method position @digest window position start
+    // @description window position start point (in phase 0..1) <br />
+    // @marg 0 @name start_position @optional 0 @type float
     class_addmethod(c, (method)karma_select_start,  "position", A_FLOAT,    0);
+    // @method window @digest window size
+    // @description window size (in normalised segment length 0..1) <br />
+    // @marg 0 @name window_size @optional 0 @type float
     class_addmethod(c, (method)karma_select_size,   "window",   A_FLOAT,    0);
+    // @method jump @digest jump location
+    // @description jump location (in normalised segment length 0..1) <br />
+    // @marg 0 @name phase_location @optional 0 @type float
     class_addmethod(c, (method)karma_jump,          "jump",     A_FLOAT,    0);
+    // @method stop @digest stop transport
+    // @description stops internal transport immediately <br />
     class_addmethod(c, (method)karma_stop,          "stop",                 0);
+    // @method play @digest play buffer
+    // @description play buffer from stopped or recording or appending, play from beginning from playing <br />
     class_addmethod(c, (method)karma_play,          "play",                 0);
+    // @method record @digest start recording
+    // @description start recording (or overdubbing), or play from a recording state <br />
     class_addmethod(c, (method)karma_record,        "record",               0);
+    // @method append @digest (get ready for) append recording
+    // @description (get ready for) append recording to end of currently used segment (as long as buffer space available) <br />
     class_addmethod(c, (method)karma_append,        "append",               0);
+    // @method multiply @digest loop content multiplier
+    // @description mutiply the current loop size by this factor. <br />
+    // @marg 0 @name multiplier @optional 0 @type float
+//  class_addmethod(c, (method)karma_loop_multiply, "multiply", A_FLOAT,    0);     // !! TODO
+    // @method resetloop @digest reset loop to original loop points
+    // @description reset the current buffer loop to the loop points that were created when making the initial loop <br />
+    // (the same as sending the message "setloop reset" to <o>karma~</o>) <br />
     class_addmethod(c, (method)karma_resetloop,     "resetloop",            0);
+    // @method setloop @digest set <o>karma~</o> loop points (not 'window')
+    // @description points (start/end) for setting <o>karma~</o> loop in selected buffer~ (not 'window') <br />
+    // "setloop" with no args sets loop to entire buffer~ length <br />
+    // "setloop reset" sets loop points to those created when making the 'initial loop' (same as sending "resetloop" to <o>karma~</o>) <br />
+    // @marg 0 @name loop_start_point @optional 1 @type float
+    // @marg 1 @name loop_end_point @optional 1 @type float
+    // @marg 2 @name points_type @optional 1 @type symbol
     class_addmethod(c, (method)karma_setloop,       "setloop",  A_GIMME,    0);
+    // @method set @digest set (new) buffer
+    // @description set (new) buffer for recording or playback, can switch buffers in realtime <br />
+    // "set buffer_name" with no other args sets (new) buffer~ and (re)sets loop points to entire buffer~ length <br />
+    // @marg 0 @name buffer_name @optional 0 @type symbol
+    // @marg 1 @name loop_start_point @optional 1 @type float
+    // @marg 2 @name loop_end_point @optional 1 @type float
+    // @marg 3 @name points_type @optional 1 @type symbol
     class_addmethod(c, (method)karma_buf_change,    "set",      A_GIMME,    0);
+    // @method offset @digest offset referenced buffer~ channel
+    // @description offset referenced buffer~ channel, zero-indexed, default 0 (no offset) <br />
+    // @marg 0 @name offset @optional 0 @type int
+//  class_addmethod(c, (method)karma_offset,        "offset",   A_LONG,     0);     // !! TODO
+    // @method overdub @digest overdubbing amplitude
+    // @description amplitude (0..1) for when in overdubbing state <br />
+    // @marg 0 @name overdub @optional 0 @type float
     class_addmethod(c, (method)karma_overdub,       "overdub",  A_FLOAT,    0);     // !! A_GIMME ?? (for amplitude + smooth time)
+    // @method float @digest optional speed inlet float
+    // @description  <br />
+    // @marg 0 @name float @optional 0 @type float
     class_addmethod(c, (method)karma_float,         "float",    A_FLOAT,    0);
     
     class_addmethod(c, (method)karma_dsp64,         "dsp64",    A_CANT,     0);
@@ -356,29 +539,45 @@ void ext_main(void *r)
     CLASS_ATTR_ACCESSORS(c, "syncout", (method)NULL, (method)karma_syncout_set);    // custom for using at instantiation
     CLASS_ATTR_LABEL(c, "syncout", 0, "Create audio rate Sync Outlet no/yes 0/1");  // not needed anywhere ?
     CLASS_ATTR_INVISIBLE(c, "syncout", 0);                      // do not expose to user, only callable as instantiation attribute
+    // @description Set as <m>integer</m> flag <b>0</b> or <b>1</b>. With <m>syncout</m> switched on, <o>karma~</o> will add an additional audio signal outlet to the object, after the audio outs and before the final data outlet. This outlet is an audio rate sync signal 0..1 for audio rate synchronous matching to other MSP processes. With <m>syncout</m> switched off (the default), <o>karma~</o> will have no additional outlets. This attribute cannot be sent to the object dynamically or changed in the inspector - it is only available at instantiation time. <br />
 
     CLASS_ATTR_LONG(c, "report", 0, t_karma, reportlist);       // !! change to "reporttime" or "listreport" or "listinterval" ??
     CLASS_ATTR_FILTER_MIN(c, "report", 0);
     CLASS_ATTR_LABEL(c, "report", 0, "Report Time (ms) for data outlet");
+    // @description Set in <m>integer</m> values. Report time granualarity in <b>ms</b> for final data outlet. Default <b>50 ms</b> <br />
     
     CLASS_ATTR_LONG(c, "ramp", 0, t_karma, globalramp);         // !! change this to ms input !!    // !! change to "[something else]" ??
     CLASS_ATTR_FILTER_CLIP(c, "ramp", 0, 2048);
     CLASS_ATTR_LABEL(c, "ramp", 0, "Ramp Time (samples)");
+    // @description Set in <m>integer</m> values. Ramp time in <b>samples</b> for <m>play</m>/<m>record</m> fades. Default <b>256 samples</b> <br />
     
     CLASS_ATTR_LONG(c, "snramp", 0, t_karma, snrramp);          // !! change this to ms input !!    // !! change to "[something else]" ??
     CLASS_ATTR_FILTER_CLIP(c, "snramp", 0, 2048);
     CLASS_ATTR_LABEL(c, "snramp", 0, "Switch&Ramp Time (samples)");
+    // @description Set in <m>integer</m> values. Ramp time in <b>samples</b> for <b>switch &amp; ramp</b> type dynamic fades. Default <b>256 samples</b> <br />
     
     CLASS_ATTR_LONG(c, "snrcurv", 0, t_karma, snrtype);         // !! change to "[something else]" ??
     CLASS_ATTR_FILTER_CLIP(c, "snrcurv", 0, 6);
     CLASS_ATTR_ENUMINDEX(c, "snrcurv", 0, "Linear Sine_In Cubic_In Cubic_Out Exp_In Exp_Out Exp_In_Out");
     CLASS_ATTR_LABEL(c, "snrcurv", 0, "Switch&Ramp Curve");
+    // @description Type of <b>curve</b> used in <b>switch &amp; ramp</b> type dynamic fades. Default <b>Sine_In</b> <br />
     
     CLASS_ATTR_LONG(c, "interp", 0, t_karma, interpflag);       // !! change to "playinterp" ??
     CLASS_ATTR_FILTER_CLIP(c, "interp", 0, 2);
     CLASS_ATTR_ENUMINDEX(c, "interp", 0, "Linear Cubic Spline");
     CLASS_ATTR_LABEL(c, "interp", 0, "Playback Interpolation");
+    // @description Type of <b>interpolation</b> used in audio playback. Default <b>Cubic</b> <br />
+/*
+    CLASS_ATTR_LONG(c, "loop", 0, t_karma, islooped);           // !! TODO !!
+    CLASS_ATTR_FILTER_CLIP(c, "loop", 0, 1);
+    CLASS_ATTR_LABEL(c, "loop", 0, "Loop off / on");
+    // @description Set as <m>integer</m> flag <b>0</b> or <b>1</b>. With <m>loop</m> switched on, <o>karma~</o> acts as a nornal looper, looping playback and/or recording depending on the state machine. With <m>loop</m> switched off, <o>karma~</o> will only play or record in oneshots. Default <b>On (1)</b> <br />
 
+    CLASS_ATTR_LONG(c, "modout", 0, t_karma, moduloout);        // !! TODO !!
+    CLASS_ATTR_FILTER_CLIP(c, "modout", 0, 1);
+    CLASS_ATTR_LABEL(c, "modout", 0, "Modulo playback channel outputs off / on");
+    // @description Set as <m>integer</m> flag <b>0</b> or <b>1</b>. With <m>modout</m> switched on, <o>karma~</o> will fill all output channels with audio even if the <o>buffer~</o> (or <o>buffer~</o> as a result of <m>offset</m>) has less available channels. With <m>modout</m> switched off, <o>karma~</o> will silence any unused channels. Like the same message to the <o>sfplay~</o> object. Default <b>Off (0)</b> <br />
+*/
     class_dspinit(c);
     class_register(CLASS_BOX, c);
     karma_class = c;
@@ -391,6 +590,16 @@ void ext_main(void *r)
     ps_samples = gensym("samples");
     ps_milliseconds = gensym("milliseconds");
     ps_originalloop = gensym("reset");
+
+    // identify build
+/*  post("--");
+    post("karma~:");
+    post("version 1.6 beta");
+    post("designed by Rodrigo Constanzo");
+    post("original version to 1.4 developed by raja");
+    post("1.5 and 1.6 updates by pete");
+    post("--");
+*/
 }
 
 void *karma_new(t_symbol *s, short argc, t_atom *argv)
@@ -1403,7 +1612,7 @@ void karma_record(t_karma *x)
     altflag = x->alternateflag;
     append = x->append;
     init = x->recordinit;
-    // sc = x->statecontrol; // not used
+    sc = x->statecontrol;
     sh = x->statehuman;
     
     x->stopallowed = 1;
@@ -1847,7 +2056,7 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                             maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                             setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                             startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                            // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);
+                            accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                             if (endloop > (frames - 1)) {
                                 endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                 wrapflag = 1;
@@ -2053,14 +2262,14 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices
                 
                 if (record) {           // if recording do linear-interp else...
-                    osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                    osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
                 } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                     if (interp == 1)
-                        osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                        osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                     else if (interp == 2)
-                        osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                        osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                     else
-                        osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
                 }
                 
                 if (globalramp)
@@ -2158,7 +2367,7 @@ void karma_mono_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 if (recordhead < 0) {
                     recordhead = playhead;
                     pokesteps = 0.0;
-                    // NOTUSED: recplaydif = writeval1 = 0.0;
+                    recplaydif = writeval1 = 0.0;
                 }
                 
                 if (recordhead == playhead) {
@@ -2339,14 +2548,13 @@ apned:
                 }
                 
                 playhead = trunc(accuratehead);
-                // NOTUSED
-                // if (direction > 0) {                            // interp ratio
-                //     //frac = accuratehead - playhead;
-                // } else if (direction < 0) {
-                //     frac = 1.0 - (accuratehead - playhead);
-                // } else {
-                //     frac = 0.0;
-                // }
+                if (direction > 0) {                            // interp ratio
+                    frac = accuratehead - playhead;
+                } else if (direction < 0) {
+                    frac = 1.0 - (accuratehead - playhead);
+                } else {
+                    frac = 0.0;
+                }
                 
                 if (globalramp)
                 {
@@ -2425,7 +2633,7 @@ apned:
                 if (recordhead < 0) {
                     recordhead = playhead;
                     pokesteps = 0.0;
-                    // NOTUSED: recplaydif = writeval1 = 0.0;
+                    recplaydif = writeval1 = 0.0;
                 }
                 
                 if (recordhead == playhead) {
@@ -2925,7 +3133,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                                 maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                                 setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                                 startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                                accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                                 if (endloop > (frames - 1)) {
                                     endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                     wrapflag = 1;
@@ -3129,18 +3337,18 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                     interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
                     
                     if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                        osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp2 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
                     } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                         if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
                         } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
                         } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                            osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                            osamp2  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
                         }
                     }
                     
@@ -3245,7 +3453,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
+                        recplaydif = writeval1 = writeval2 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -3434,14 +3642,13 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                     }
                     
                     playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
+                    if (direction > 0) {                          // interp ratio
+                        frac = accuratehead - playhead;
+                    } else if (direction < 0) {
+                        frac = 1.0 - (accuratehead - playhead);
+                    } else {
+                        frac = 0.0;
+                    }
                     
                     if (globalramp)
                     {
@@ -3525,7 +3732,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
+                        recplaydif = writeval1 = writeval2 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -3790,7 +3997,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
         while (n--)
         {
             recin1 = *in1++;
-            // NOTUSED: recin2 = *in2++;
+            recin2 = *in2++;
             speed = speedinlet ? *in3++ : speedfloat;   // signal of float ?
             direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
             
@@ -3847,7 +4054,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                                 maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                                 setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                                 startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                                accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                                 if (endloop > (frames - 1)) {
                                     endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                     wrapflag = 1;
@@ -4051,14 +4258,14 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                     interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
                     
                     if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
                     } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                         if (interp == 1)
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                         else if (interp == 2)
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                         else
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                            osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
                     }
                     
                     if (globalramp)
@@ -4131,8 +4338,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                 
                 o1prev = osamp1;
                 *out1++ = osamp1;
-                osamp2 = 0.0;
-                o2prev = osamp2;
+                o2prev = osamp2 = 0.0;
                 *out2++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -4157,7 +4363,7 @@ void karma_stereo_perform(t_karma *x, t_object *dsp64, double **ins, long nins, 
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
+                        recplaydif = writeval1 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -4336,14 +4542,13 @@ apnde:
                     }
                     
                     playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
+                    if (direction > 0) {                          // interp ratio
+                        frac = accuratehead - playhead;
+                    } else if (direction < 0) {
+                        frac = 1.0 - (accuratehead - playhead);
+                    } else {
+                        frac = 0.0;
+                    }
                     
                     if (globalramp)
                     {
@@ -4406,7 +4611,7 @@ apnde:
                 o1prev = osamp1;
                 *out1++ = osamp1;
                 osamp2 = 0.0;
-                o2prev = osamp2;
+                o2prev = osamp2 = 0.0;
                 *out2++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -4425,7 +4630,7 @@ apnde:
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
+                        recplaydif = writeval1 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -4943,7 +5148,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                                 maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                                 setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                                 startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                                accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                                 if (endloop > (frames - 1)) {
                                     endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                     wrapflag = 1;
@@ -5147,26 +5352,26 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
                     
                     if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                        osamp3 =    linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
-                        osamp4 =    linear_interp(frac, b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3]);
+                        osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp2 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                        osamp3 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
+                        osamp4 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3]);
                     } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                         if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = cubic_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
-                            osamp4  = cubic_interp(frac, b[(interp0 * pchans) + 3], b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3], b[(interp3 * pchans) + 3]);
+                            osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp3  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
+                            osamp4  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 3], b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3], b[(interp3 * pchans) + 3]);
                         } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = spline_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
-                            osamp4  = spline_interp(frac, b[(interp0 * pchans) + 3], b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3], b[(interp3 * pchans) + 3]);
+                            osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp3  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
+                            osamp4  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 3], b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3], b[(interp3 * pchans) + 3]);
                         } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                            osamp3  = linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
-                            osamp4  = linear_interp(frac, b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3]);
+                            osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                            osamp2  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                            osamp3  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
+                            osamp4  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 3], b[(interp2 * pchans) + 3]);
                         }
                     }
                     
@@ -5287,7 +5492,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = writeval4 = 0.0;
+                        recplaydif = writeval1 = writeval2 = writeval3 = writeval4 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -5496,15 +5701,13 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     }
                     
                     playhead = trunc(accuratehead);
-                    
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
+                    if (direction > 0) {                          // interp ratio
+                        frac = accuratehead - playhead;
+                    } else if (direction < 0) {
+                        frac = 1.0 - (accuratehead - playhead);
+                    } else {
+                        frac = 0.0;
+                    }
                     
                     if (globalramp)
                     {
@@ -5598,7 +5801,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = writeval4 = 0.0;
+                        recplaydif = writeval1 = writeval2 = writeval3 = writeval4 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -5949,7 +6152,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
             recin1 = *in1++;
             recin2 = *in2++;
             recin3 = *in3++;
-            // NOTUSED: recin4 = *in4++;
+            recin4 = *in4++;
             speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
             direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
             
@@ -6006,7 +6209,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                                 maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                                 setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                                 startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                                accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                                 if (endloop > (frames - 1)) {
                                     endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                     wrapflag = 1;
@@ -6210,22 +6413,22 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
                     
                     if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                        osamp3 =    linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
+                        osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp2 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                        osamp3 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
                     } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                         if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = cubic_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
+                            osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp3  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
                         } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
-                            osamp3  = spline_interp(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
+                            osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp3  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 2], b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2], b[(interp3 * pchans) + 2]);
                         } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
-                            osamp3  = linear_interp(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
+                            osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                            osamp2  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                            osamp3  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 2], b[(interp2 * pchans) + 2]);
                         }
                     }
                     
@@ -6311,8 +6514,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                 *out1++ = osamp1;
                 *out2++ = osamp2;
                 *out3++ = osamp3;
-                osamp4 = 0.0;
-                o4prev = osamp4;
+                o4prev = osamp4 = 0.0;
                 *out4++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -6341,7 +6543,7 @@ void karma_quad_perform(t_karma *x, t_object *dsp64, double **ins, long nins, do
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = 0.0;
+                        recplaydif = writeval1 = writeval2 = writeval3 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -6540,14 +6742,13 @@ apden:
                     }
                     
                     playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
+                    if (direction > 0) {                          // interp ratio
+                        frac = accuratehead - playhead;
+                    } else if (direction < 0) {
+                        frac = 1.0 - (accuratehead - playhead);
+                    } else {
+                        frac = 0.0;
+                    }
                     
                     if (globalramp)
                     {
@@ -6615,8 +6816,7 @@ apden:
                 *out1++ = osamp1;
                 *out2++ = osamp2;
                 *out3++ = osamp3;
-                osamp4 = 0.0;
-                o4prev = osamp4;
+                o4prev = osamp4 = 0.0;
                 *out4++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -6639,7 +6839,7 @@ apden:
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = writeval3 = 0.0;
+                        recplaydif = writeval1 = writeval2 = writeval3 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -6946,8 +7146,8 @@ apden:
         {
             recin1 = *in1++;
             recin2 = *in2++;
-            // NOTUSED: recin3 = *in3++;
-            // NOTUSED: recin4 = *in4++;
+            recin3 = *in3++;
+            recin4 = *in4++;
             speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
             direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
             
@@ -7004,7 +7204,7 @@ apden:
                                 maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                                 setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                                 startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                                accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                                 if (endloop > (frames - 1)) {
                                     endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                     wrapflag = 1;
@@ -7208,18 +7408,18 @@ apden:
                     interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
                     
                     if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                        osamp2 =    linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                        osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp2 =    LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
                     } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                         if (interp == 1) {
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = cubic_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = CUBIC_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
                         } else if (interp == 2) {
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-                            osamp2  = spline_interp(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
+                            osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp2  = SPLINE_INTERP(frac, b[(interp0 * pchans) + 1], b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1], b[(interp3 * pchans) + 1]);
                         } else {
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
-                            osamp2  = linear_interp(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
+                            osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                            osamp2  = LINEAR_INTERP(frac, b[(interp1 * pchans) + 1], b[(interp2 * pchans) + 1]);
                         }
                     }
                     
@@ -7299,11 +7499,9 @@ apden:
                 o2prev = osamp2;
                 *out1++ = osamp1;
                 *out2++ = osamp2;
-                osamp3 = 0.0;
-                o3prev = osamp3;
+                o3prev = osamp3 = 0.0;
                 *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
+                o4prev = osamp4 = 0.0;
                 *out4++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -7330,7 +7528,7 @@ apden:
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
+                        recplaydif = writeval1 = writeval2 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -7519,14 +7717,13 @@ apdne:
                     }
                     
                     playhead = trunc(accuratehead);
-                    // NOTUSED
-                    // if (direction > 0) {                          // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
+                    if (direction > 0) {                          // interp ratio
+                        frac = accuratehead - playhead;
+                    } else if (direction < 0) {
+                        frac = 1.0 - (accuratehead - playhead);
+                    } else {
+                        frac = 0.0;
+                    }
                     
                     if (globalramp)
                     {
@@ -7591,11 +7788,9 @@ apdne:
                 o2prev = osamp2;
                 *out1++ = osamp1;
                 *out2++ = osamp2;
-                osamp3 = 0.0;
-                o3prev = osamp3;
+                o3prev = osamp3 = 0.0;
                 *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
+                o4prev = osamp4 = 0.0;
                 *out4++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -7616,7 +7811,7 @@ apdne:
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = writeval2 = 0.0;
+                        recplaydif = writeval1 = writeval2 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -7881,9 +8076,9 @@ apdne:
         while (n--)
         {
             recin1 = *in1++;
-            // NOTUSED: recin2 = *in2++;
-            // NOTUSED: recin3 = *in3++;
-            // NOTUSED: recin4 = *in4++;
+            recin2 = *in2++;
+            recin3 = *in3++;
+            recin4 = *in4++;
             speed = speedinlet ? *in5++ : speedfloat;   // signal of float ?
             direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
             
@@ -7940,7 +8135,7 @@ apdne:
                                 maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
                                 setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
                                 startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
-                                // NOTUSED: accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                                accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
                                 if (endloop > (frames - 1)) {
                                     endloop = ((frames - 1) - setloopsize) + (endloop - frames);
                                     wrapflag = 1;
@@ -8144,14 +8339,14 @@ apdne:
                     interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices for interp
                     
                     if (record) {              // if recording do linear-interp else...
-                        osamp1 =    linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                        osamp1 =    LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
                     } else {                // ...cubic / spline if interpflag > 0 (default cubic)
                         if (interp == 1)
-                            osamp1  = cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp1  = CUBIC_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                         else if (interp == 2)
-                            osamp1  = spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                            osamp1  = SPLINE_INTERP(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
                         else
-                            osamp1  = linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                            osamp1  = LINEAR_INTERP(frac, b[interp1 * pchans], b[interp2 * pchans]);
                     }
                     
                     if (globalramp)
@@ -8224,14 +8419,11 @@ apdne:
                 
                 o1prev = osamp1;
                 *out1++ = osamp1;
-                osamp2 = 0.0;
-                o2prev = osamp2;
+                o2prev = osamp2 = 0.0;
                 *out2++ = 0.0;
-                osamp3 = 0.0;
-                o3prev = osamp3;
+                o3prev = osamp3 = 0.0;
                 *out3++ = 0.0;
-                osamp4 = 0.0;
-                o4prev = osamp4;
+                o4prev = osamp4 = 0.0;
                 *out4++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -8256,7 +8448,7 @@ apdne:
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
+                        recplaydif = writeval1 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
@@ -8435,14 +8627,13 @@ apnde:
                     }
                     
                     playhead = trunc(accuratehead);
-                    // NOTUSED:
-                    // if (direction > 0) {                    // interp ratio
-                    //     frac = accuratehead - playhead;
-                    // } else if (direction < 0) {
-                    //     frac = 1.0 - (accuratehead - playhead);
-                    // } else {
-                    //     frac = 0.0;
-                    // }
+                    if (direction > 0) {                    // interp ratio
+                        frac = accuratehead - playhead;
+                    } else if (direction < 0) {
+                        frac = 1.0 - (accuratehead - playhead);
+                    } else {
+                        frac = 0.0;
+                    }
                     
                     if (globalramp)
                     {
@@ -8505,13 +8696,13 @@ apnde:
                 o1prev = osamp1;
                 *out1++ = osamp1;
                 osamp2 = 0.0;
-                o2prev = osamp2;
+                o2prev = osamp2 = 0.0;
                 *out2++ = 0.0;
                 osamp3 = 0.0;
-                o3prev = osamp3;
+                o3prev = osamp3 = 0.0;
                 *out3++ = 0.0;
                 osamp4 = 0.0;
-                o4prev = osamp4;
+                o4prev = osamp4 = 0.0;
                 *out4++ = 0.0;
                 if (syncoutlet) {
                     setloopsize = maxloop-minloop;
@@ -8530,7 +8721,7 @@ apnde:
                     if (recordhead < 0) {
                         recordhead = playhead;
                         pokesteps = 0.0;
-                        // NOTUSED: recplaydif = writeval1 = 0.0;
+                        recplaydif = writeval1 = 0.0;
                     }
                     
                     if (recordhead == playhead) {
