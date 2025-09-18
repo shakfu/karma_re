@@ -19,7 +19,11 @@ I personally found the code to be very complex and difficult to understand, so I
 
 ## Status
 
-- This is still a work in progress but the refactored mono version seemingly works ok, and an experimental stereo version is also included based on the refactored code.
+So far the project has produced three variants (which may not have the full featureset of `karma~` 1.6):
+
+1. A refactored mono version which seemingly works ok, 
+2. An experimental stereo version based on (1)
+3. An experimental `mc.` variant based on (1)
 
 Here are some graphs to illustrate the changes:
 
