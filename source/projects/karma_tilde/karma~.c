@@ -113,6 +113,14 @@ struct t_karma {
 
     short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
 
+    // Multichannel processing arrays (pre-allocated to avoid real-time allocation)
+    double  *poly_osamp;    // output sample arrays for multichannel
+    double  *poly_oprev;    // previous output arrays for multichannel
+    double  *poly_odif;     // output difference arrays for multichannel
+    double  *poly_recin;    // record input arrays for multichannel
+    long    poly_maxchans;  // maximum allocated channel count
+    long    input_channels; // current input channel count for auto-adapting
+
     void    *messout;       // list outlet pointer
     void    *tclock;        // list timer pointer
 };
@@ -791,6 +799,8 @@ void ext_main(void *r)
     class_addmethod(c, (method)karma_assist,        "assist",   A_CANT,     0);
     class_addmethod(c, (method)karma_buf_dblclick,  "dblclick", A_CANT,     0);
     class_addmethod(c, (method)karma_buf_notify,    "notify",   A_CANT,     0);
+    class_addmethod(c, (method)karma_multichanneloutputs, "multichanneloutputs", A_CANT, 0);
+    class_addmethod(c, (method)karma_inputchanged, "inputchanged", A_CANT, 0);
 
     CLASS_ATTR_LONG(c, "syncout", 0, t_karma, syncoutlet);
     CLASS_ATTR_ACCESSORS(c, "syncout", (method)NULL, (method)karma_syncout_set);    // custom for using at instantiation
@@ -887,6 +897,14 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
             chans = 4;
         }
 
+        // Allocate multichannel processing arrays for maximum expected channels
+        x->poly_maxchans = (chans > 4) ? chans : 4;  // Minimum 4, supports up to chans
+        x->poly_osamp = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        x->poly_oprev = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        x->poly_odif = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        x->poly_recin = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        x->input_channels = chans;  // Initialize input channel count
+
         x->timing.recordhead = -1;
         x->reportlist = 50;                          // ms
         x->fade.snrramp = x->fade.globalramp = 256;  // samps...
@@ -968,17 +986,18 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
                 outlet_new(x, "signal"); // last: sync (optional)
             outlet_new(x, "signal");     // second: audio output 2
             outlet_new(x, "signal");     // first: audio output 1
-        } else {                         // quad
+        } else {                         // multichannel (4+)
             if (syncoutlet)
                 outlet_new(x, "signal"); // last: sync (optional)
-            outlet_new(x, "signal");     // fourth: audio output 4
-            outlet_new(x, "signal");     // third: audio output 3
-            outlet_new(x, "signal");     // second: audio output 2
-            outlet_new(x, "signal");     // first: audio output 1
+            outlet_new(x, "multichannelsignal"); // multichannel audio output
         }
 
         x->state.initskip = 1;
         x->k_ob.z_misc |= Z_NO_INPLACE;
+
+        // Enable multichannel inlet support for all channel counts
+        // This allows the object to receive both single and multichannel patch cords
+        x->k_ob.z_misc |= Z_MC_INLETS;
     }
 
     // zero:
@@ -989,6 +1008,12 @@ void karma_free(t_karma* x)
 {
     if (x->state.initskip) {
         dsp_free((t_pxobject*)x);
+
+        // Free multichannel processing arrays
+        if (x->poly_osamp) sysmem_freeptr(x->poly_osamp);
+        if (x->poly_oprev) sysmem_freeptr(x->poly_oprev);
+        if (x->poly_odif) sysmem_freeptr(x->poly_odif);
+        if (x->poly_recin) sysmem_freeptr(x->poly_recin);
 
         object_free(x->buffer.buf);
         object_free(x->buffer.buf_temp);
@@ -1925,6 +1950,44 @@ t_max_err karma_buf_notify(t_karma* x, t_symbol* s, t_symbol* msg, void* sndr, v
     }
 }
 
+long karma_multichanneloutputs(t_karma* x, int index)
+{
+    // Outlet arrangement when ochans > 2 (multichannel mode):
+    // With sync: outlet 0 = sync (1 channel), outlet 1 = multichannel (ochans channels)
+    // Without sync: outlet 0 = multichannel (ochans channels)
+
+    if (x->buffer.ochans > 2) {
+        if (x->syncoutlet) {
+            // With sync outlet: index 0 = sync (1 ch), index 1 = multichannel (ochans ch)
+            if (index == 0) return 1;           // sync outlet
+            if (index == 1) return x->buffer.ochans;  // multichannel outlet
+        } else {
+            // Without sync outlet: index 0 = multichannel (ochans ch)
+            if (index == 0) return x->buffer.ochans;  // multichannel outlet
+        }
+    }
+
+    return 1; // Default for non-MC outlets or other cases
+}
+
+long karma_inputchanged(t_karma* x, long index, long count)
+{
+    // Auto-adapt output channel count based on input changes
+    // This is called by the MC signal compiler when input channel counts change
+
+    if (count != x->input_channels) {
+        x->input_channels = count;
+
+        // For multichannel mode, we auto-adapt our output to match input count
+        if (x->buffer.ochans > 2) {
+            x->buffer.ochans = count;
+            return true;  // Signal that our output channel count may have changed
+        }
+    }
+
+    return false;  // No change in output channel count
+}
+
 void karma_dsp64(
     t_karma* x, t_object* dsp64, short* count, double srate, long vecount, long flags)
 {
@@ -1938,7 +2001,26 @@ void karma_dsp64(
             karma_buf_setup(x, x->buffer.bufname); // does 'x->timing.bvsnorm'    // !!
                                                    // this should be defered ??
 
-        if (x->buffer.ochans > 1) {
+        // For MC objects, query the actual input channel counts
+        if (x->buffer.ochans > 2) {
+            // Check how many channels are actually connected to our multichannel inputs
+            for (int inlet = 0; inlet < x->buffer.ochans; inlet++) {
+                if (count[inlet]) {  // Only check connected inlets
+                    long channels = (long)object_method(dsp64, gensym("getnuminputchannels"), x, inlet);
+                    // For now, just store the first connected inlet's channel count
+                    // A more sophisticated implementation might sum or handle differently
+                    if (inlet == 0) {
+                        x->input_channels = channels;
+                    }
+                }
+            }
+        }
+
+        if (x->buffer.ochans > 2) {
+            x->speedconnect = count[x->buffer.ochans];     // speed is last inlet
+            object_method(dsp64, gensym("dsp_add64"), x, karma_poly_perform, 0, NULL);
+        }
+        else if (x->buffer.ochans > 1) {
             x->speedconnect = count[2];     // speed is 3rd inlet
             object_method(dsp64, gensym("dsp_add64"), x, karma_stereo_perform, 0, NULL);
         }
@@ -2990,6 +3072,391 @@ zero:
         *out2++ = 0.0;
         if (syncoutlet)
             *outPh++ = 0.0;
+    }
+
+    return;
+}
+
+void karma_poly_perform(
+    t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
+    long vcount, long flgs, void* usr)
+{
+    long syncoutlet = x->syncoutlet;
+    long nchans = x->buffer.ochans;
+
+    // Safety check: ensure we don't exceed allocated memory
+    if (nchans > x->poly_maxchans) {
+        nchans = x->poly_maxchans;
+    }
+
+    // MC Signal Routing (per Max MC API docs):
+    // - ins[0..nchans-1] are audio inputs, ins[nchans] is speed
+    // - numouts tells us total number of output channels across all outlets
+    // - if syncoutlet: we have sync outlet (1 ch) + multichannel outlet (nchans ch) = 1+nchans total
+    // - if no syncoutlet: we have only multichannel outlet (nchans ch) = nchans total
+
+    double* speed_in = ins[nchans];
+    double* sync_out = NULL;
+    long multichannel_start_idx = 0;
+
+    if (syncoutlet) {
+        // With sync: outs[0] = sync channel, outs[1..nchans] = multichannel channels
+        sync_out = outs[0];
+        multichannel_start_idx = 1;
+    } else {
+        // Without sync: outs[0..nchans-1] = multichannel channels
+        multichannel_start_idx = 0;
+    }
+
+    long  n = vcount;
+    short speedinlet = x->speedconnect;
+
+    double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
+    double speed, speedfloat, overdubamp, overdubprev, ovdbdif, selstart, selection;
+    double frac, snrfade, globalramp, snrramp, coeff1, writeval1;
+    double* osamp = x->poly_osamp;
+    double* oprev = x->poly_oprev;
+    double* odif = x->poly_odif;
+    double* recin = x->poly_recin;
+
+    t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt,
+        wrapflag, triginit;
+    char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
+    long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans;
+    control_state_t   statecontrol;
+    switchramp_type_t snrtype;
+    interp_type_t     interp;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long initiallow, initialhigh;
+
+    t_buffer_obj* buf = buffer_ref_getobject(x->buffer.buf);
+    float*        b = buffer_locksamples(buf);
+
+    record = x->state.record;
+    recordprev = x->state.recordprev;
+    dirt = 0;
+    if (!b || x->k_ob.z_disabled)
+        goto zero;
+    if (record || recordprev)
+        dirt = 1;
+    if (x->state.buf_modified) {
+        karma_buf_modify(x, buf);
+        x->state.buf_modified = false;
+    }
+
+    go = x->state.go;
+    statecontrol = x->state.statecontrol;
+    playfadeflag = x->fade.playfadeflag;
+    recfadeflag = x->fade.recfadeflag;
+    recordhead = x->timing.recordhead;
+    alternateflag = x->state.alternateflag;
+    pchans = x->buffer.bchans;
+    srscale = x->timing.srscale;
+    frames = x->buffer.bframes;
+    triginit = x->state.triginit;
+    jumpflag = x->state.jumpflag;
+    append = x->state.append;
+    directionorig = x->state.directionorig;
+    direction = x->state.directionprev;
+    directionprev = x->state.directionprev;
+    speed = 1.0;
+    speedfloat = x->speedfloat;
+    loopdetermine = x->state.loopdetermine;
+    wrapflag = x->state.wrapflag;
+    interp = x->audio.interpflag;
+    accuratehead = x->timing.playhead;
+    playhead = x->timing.playhead;
+    speedsrscaled = speed * srscale;
+    ovdbdif = 0.0;
+    overdubamp = x->audio.overdubamp;
+    overdubprev = x->audio.overdubprev;
+
+    for (i = 0; i < nchans && i < 4; i++) {
+        oprev[i] = (&x->audio.o1prev)[i];
+        odif[i] = (&x->audio.o1dif)[i];
+    }
+    for (i = 4; i < nchans; i++) {
+        oprev[i] = 0.0;
+        odif[i] = 0.0;
+    }
+
+    selstart = x->timing.selstart;
+    selection = x->timing.selection;
+    startloop = x->loop.startloop;
+    endloop = x->loop.endloop;
+    minloop = x->loop.minloop;
+    maxloop = x->loop.maxloop;
+    setloopsize = maxloop - minloop;
+    playfade = x->fade.playfade;
+    recordfade = x->fade.recordfade;
+    globalramp = x->fade.globalramp;
+    snrramp = x->fade.snrramp;
+    snrfade = x->fade.snrfade;
+    snrtype = x->fade.snrtype;
+    initiallow = x->loop.initiallow;
+    initialhigh = x->loop.initialhigh;
+    maxhead = x->timing.maxhead;
+    jumphead = x->timing.jumphead;
+    recplaydif = 0.0;
+    pokesteps = x->audio.pokesteps;
+
+    // Process state control using helper function
+    kh_process_state_control(
+        x, &statecontrol, &record, &go, &triginit, &loopdetermine, &recordfade,
+        &recfadeflag, &playfade, &playfadeflag, &recendmark);
+
+    while (n--) {
+        for (i = 0; i < nchans; i++) {
+            recin[i] = *ins[i]++;
+        }
+        speed = speedinlet ? *speed_in++ : speedfloat;
+        direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
+
+        kh_process_direction_change(x, b, directionprev, direction);
+        if (directionprev != direction && record && globalramp) {
+            recordhead = -1;
+        }
+
+        kh_process_record_toggle(x, b, accuratehead, direction, speed, &dirt);
+        recordprev = record;
+
+        if (!loopdetermine) {
+            if (go) {
+                kh_process_loop_initialization(
+                    x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark,
+                    triginit, jumpflag);
+                if (triginit) {
+                    recordhead = -1;
+                    triginit = 0;
+                    if (record && !recendmark) {
+                        recordfade = 0;
+                        recfadeflag = 0;
+                    }
+                } else {
+                    setloopsize = maxloop - minloop;
+                    kh_process_loop_boundary(
+                        x, b, &accuratehead, speed, direction, setloopsize, wrapflag,
+                        jumpflag);
+
+                    if (jumpflag) {
+                        if (wrapflag) {
+                            if ((accuratehead < endloop) || (accuratehead > startloop))
+                                jumpflag = 0;
+                        } else {
+                            if ((accuratehead < endloop) && (accuratehead > startloop))
+                                jumpflag = 0;
+                        }
+                    }
+                }
+
+                playhead = trunc(accuratehead);
+                if (direction > 0) {
+                    frac = accuratehead - playhead;
+                } else if (direction < 0) {
+                    frac = 1.0 - (accuratehead - playhead);
+                } else {
+                    frac = 0.0;
+                }
+                kh_interp_index(
+                    playhead, &interp0, &interp1, &interp2, &interp3, direction,
+                    directionorig, maxloop, frames - 1);
+
+                for (i = 0; i < nchans; i++) {
+                    long chan_offset = i % pchans;
+                    osamp[i] = kh_perform_playback_interpolation(
+                        frac, b + chan_offset, interp0 * pchans, interp1 * pchans,
+                        interp2 * pchans, interp3 * pchans, pchans, interp, record);
+                }
+
+                if (globalramp) {
+                    if (snrfade < 1.0) {
+                        for (i = 0; i < nchans; i++) {
+                            if (snrfade == 0.0) {
+                                odif[i] = oprev[i] - osamp[i];
+                            }
+                            osamp[i] += kh_ease_switchramp(odif[i], snrfade, snrtype);
+                        }
+                        snrfade += 1 / snrramp;
+                    }
+
+                    if (playfade < globalramp) {
+                        for (i = 0; i < nchans; i++) {
+                            osamp[i] = kh_ease_record(
+                                osamp[i], (playfadeflag > 0), globalramp, playfade);
+                        }
+                        playfade++;
+                        if (playfade >= globalramp) {
+                            kh_process_playfade_state(
+                                &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
+                                &playfade, &snrfade, record);
+                        }
+                    }
+                } else {
+                    kh_process_playfade_state(
+                        &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
+                        &playfade, &snrfade, record);
+                }
+            } else {
+                for (i = 0; i < nchans; i++) {
+                    osamp[i] = 0.0;
+                }
+            }
+
+            // Write each channel to its separate output buffer
+            for (i = 0; i < nchans; i++) {
+                *outs[multichannel_start_idx + i]++ = osamp[i];
+                oprev[i] = osamp[i];
+            }
+            // Handle sync output if enabled
+            if (syncoutlet) {
+                setloopsize = maxloop - minloop;
+                *sync_out++ = (directionorig >= 0) ?
+                             ((accuratehead - minloop) / setloopsize) :
+                             ((accuratehead - (frames - setloopsize)) / setloopsize);
+            }
+
+            if (record) {
+                if ((recordfade < globalramp) && (globalramp > 0.0)) {
+                    for (i = 0; i < nchans; i++) {
+                        long chan_offset = i % pchans;
+                        recin[i] = kh_ease_record(
+                            recin[i] + (((double)b[playhead * pchans + chan_offset]) * overdubamp),
+                            recfadeflag, globalramp, recordfade);
+                    }
+                    recordfade++;
+                    if (recordfade >= globalramp)
+                        kh_process_recording_fade_completion(
+                            recfadeflag, &recendmark, &record, &triginit, &jumpflag,
+                            &loopdetermine, &recordfade, directionorig, &maxloop,
+                            maxhead, globalramp);
+                } else {
+                    if (recfadeflag) {
+                        kh_process_recording_fade_completion(
+                            recfadeflag, &recendmark, &record, &triginit, &jumpflag,
+                            &loopdetermine, &recordfade, directionorig, &maxloop, maxhead,
+                            globalramp);
+                    }
+                }
+
+                for (i = 0; i < nchans; i++) {
+                    long chan_offset = i % pchans;
+                    if (recordhead != -1) {
+                        coeff1 = 1.0 / (pokesteps + 1.0);
+                        if ((recordfade >= globalramp) || !recfadeflag) {
+                            writeval1 = recin[i];
+                        } else {
+                            writeval1 = (((double)b[recordhead * pchans + chan_offset]) * (1.0 - coeff1)) + (recin[i] * coeff1);
+                        }
+                        b[recordhead * pchans + chan_offset] = writeval1;
+                    }
+                }
+            }
+        } else {
+            playhead = trunc(accuratehead);
+
+            if (globalramp) {
+                if (playfade < globalramp) {
+                    for (i = 0; i < nchans; i++) {
+                        osamp[i] = kh_ease_record(0.0, (playfadeflag > 0), globalramp, playfade);
+                    }
+                    playfade++;
+                    if (playfade >= globalramp) {
+                        kh_process_playfade_state(
+                            &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
+                            &playfade, &snrfade, record);
+                    }
+                } else {
+                    for (i = 0; i < nchans; i++) {
+                        osamp[i] = 0.0;
+                    }
+                }
+            } else {
+                for (i = 0; i < nchans; i++) {
+                    osamp[i] = 0.0;
+                }
+            }
+
+            // Write each channel to its separate output buffer
+            for (i = 0; i < nchans; i++) {
+                *outs[multichannel_start_idx + i]++ = osamp[i];
+                oprev[i] = osamp[i];
+            }
+            // Handle sync output if enabled
+            if (syncoutlet) {
+                setloopsize = maxloop - minloop;
+                *sync_out++ = (directionorig >= 0) ?
+                             ((accuratehead - minloop) / setloopsize) :
+                             ((accuratehead - (frames - setloopsize)) / setloopsize);
+            }
+
+            if (record) {
+                for (i = 0; i < nchans; i++) {
+                    long chan_offset = i % pchans;
+                    if ((recordfade < globalramp) && (globalramp > 0.0)) {
+                        recin[i] = kh_ease_record(
+                            recin[i] + (((double)b[playhead * pchans + chan_offset]) * overdubamp),
+                            recfadeflag, globalramp, recordfade);
+                    } else {
+                        recin[i] += ((double)b[playhead * pchans + chan_offset]) * overdubamp;
+                    }
+
+                    if (recordhead != -1) {
+                        coeff1 = 1.0 / (pokesteps + 1.0);
+                        writeval1 = (((double)b[recordhead * pchans + chan_offset]) * (1.0 - coeff1)) + (recin[i] * coeff1);
+                        b[recordhead * pchans + chan_offset] = writeval1;
+                    }
+                }
+
+                kh_process_recording_fade(
+                    globalramp, &recordfade, &recfadeflag, &record, &triginit, &jumpflag);
+            }
+        }
+        directionprev = direction;
+    }
+
+    for (i = 0; i < nchans && i < 4; i++) {
+        (&x->audio.o1prev)[i] = oprev[i];
+        (&x->audio.o1dif)[i] = odif[i];
+    }
+
+    x->state.record = record;
+    x->state.recordprev = record;
+    x->state.go = go;
+    x->state.statecontrol = statecontrol;
+    x->fade.playfadeflag = playfadeflag;
+    x->fade.recfadeflag = recfadeflag;
+    x->timing.recordhead = recordhead;
+    x->state.alternateflag = alternateflag;
+    x->state.directionprev = direction;
+    x->speedfloat = speedfloat;
+    x->state.loopdetermine = loopdetermine;
+    x->state.wrapflag = wrapflag;
+    x->timing.playhead = accuratehead;
+    x->audio.overdubamp = overdubamp;
+    x->audio.overdubprev = overdubprev;
+    x->loop.startloop = startloop;
+    x->loop.endloop = endloop;
+    x->fade.playfade = playfade;
+    x->fade.recordfade = recordfade;
+    x->fade.snrfade = snrfade;
+    x->state.triginit = triginit;
+    x->state.jumpflag = jumpflag;
+
+    if (dirt)
+        buffer_setdirty(buf);
+    buffer_unlocksamples(buf);
+
+    return;
+
+zero:
+    while (n--) {
+        // Write zeros to all multichannel output channels
+        for (i = 0; i < nchans; i++) {
+            *outs[multichannel_start_idx + i]++ = 0.0;
+        }
+        // Handle sync output if enabled
+        if (syncoutlet)
+            *sync_out++ = 0.0;
     }
 
     return;
