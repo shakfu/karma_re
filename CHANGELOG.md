@@ -3,6 +3,10 @@
 
 ## [0.1.x]
 
+- Improved Configuration Architecture
+	- karma_config.h: contains truly configurable constants that users should be able to override
+    - Non-configurable architectural constants qre moved to implementation file.
+
 
 ## [0.1.3]
 
