@@ -1,5 +1,6 @@
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../max-sdk-base/script/max-pretarget.cmake)
 
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "" FORCE)
 
 include_directories( 
 	"${MAX_SDK_INCLUDES}"
