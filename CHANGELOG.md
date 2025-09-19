@@ -1,7 +1,11 @@
 # Changelog
 
-
 ## [0.1.x]
+
+
+## [0.1.4]
+
+- Added Documentation to main enums and functions
 
 - Improved Configuration Architecture
 	- karma_config.h: contains truly configurable constants that users should be able to override
