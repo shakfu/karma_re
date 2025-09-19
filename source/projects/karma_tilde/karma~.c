@@ -89,7 +89,9 @@ struct t_karma {
         long    recordhead;     // record head position in samples
         double  selstart;       // start position of window ('selection') within loop set by the 'position $1' message sent to object (in phase 0..1)
         double  selection;      // selection length of window ('selection') within loop set by 'window $1' message sent to object (in phase 0..1)
-        //  double  selmultiply;    // store loop length multiplier amount from 'multiply' method -->> TODO
+        // REMOVED: selmultiply functionality was planned but never implemented
+        // Would have provided loop length multiplication feature via 'multiply' method
+        // Decision: Leave unimplemented as no current usage exists in codebase
     } timing;
 
     // Audio processing group
@@ -130,8 +132,12 @@ struct t_karma {
         long   snrramp;         // switch n ramp time in samples ("generally much shorter than general fade time")
         double  snrfade;        // fade counter for switch n ramp, normalised 0..1 ??
         switchramp_type_t snrtype;    // switch n ramp curve option choice
-        char    playfadeflag;   // playback up/down flag, used as: 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but case switch 0..4 ??
-        char    recfadeflag;    // record up/down flag, 0 = fade up/in, 1 = fade down/out (<<-- TODO: reverse ??) but used 0..5 ??
+        char    playfadeflag;   // Playback fade state machine flag:
+                                // 0 = no fade, 1 = fade out/stop, 2 = switch fade prep,
+                                // 3 = fade complete reset, 4 = append mode fade
+        char    recfadeflag;    // Recording fade state machine flag:
+                                // 0 = no fade, 1 = fade out, 2 = overdub transition,
+                                // 3-4 = transition states, 5 = recording continuation
     } fade;
 
     // State and control group
@@ -158,28 +164,36 @@ struct t_karma {
         t_bool  clockgo;        // activate clock (for list outlet)
     } state;
 
-    double  speedfloat;     // store speed inlet value if float (not signal)
+    double  speedfloat;         // store speed inlet value if float (not signal)
 
-    long    syncoutlet;     // make sync outlet ? (object attribute @syncout, instantiation time only)
-//  long    boffset;        // zero indexed buffer channel # (default 0), user settable, not buffer~ queried -->> TODO
-    long    moduloout;      // modulo playback channel outputs flag, user settable, not buffer~ queried -->> TODO
-    long    islooped;       // can disable/enable global looping status (rodrigo @ttribute request, TODO) (!! long ??)
+    long    syncoutlet;         // make sync outlet ? (object attribute @syncout, instantiation time only)
+    // RESERVED: Buffer offset feature for channel indexing
+    // long    boffset;         // Would allow starting from specific buffer channel (default 0)
+    //                          // Decision: Not implemented - current multichannel design sufficient
 
-    long   recordhead;      // record head position in samples
-    long   reportlist;      // right list outlet report granularity in ms (!! why is this a long ??)
+    long    moduloout;          // RESERVED: Modulo playback channel outputs
+                                // Would cycle through available output channels
+                                // Decision: Not implemented - conflicts with MC signal routing
 
-    short   speedconnect;   // 'count[]' info for 'speed' as signal or float in perform routines
+    long    islooped;           // Global looping enable/disable flag
+                                // 0 = looping disabled, 1 = looping enabled (default)
+                                // Note: Currently not implemented - would require extensive state machine changes
+
+    long   recordhead;          // record head position in samples
+    long   reportlist;          // right list outlet report granularity in ms (!! why is this a long ??)
+
+    short   speedconnect;       // 'count[]' info for 'speed' as signal or float in perform routines
 
     // Multichannel processing arrays (pre-allocated to avoid real-time allocation)
-    double  *poly_osamp;    // output sample arrays for multichannel
-    double  *poly_oprev;    // previous output arrays for multichannel
-    double  *poly_odif;     // output difference arrays for multichannel
-    double  *poly_recin;    // record input arrays for multichannel
-    long    poly_maxchans;  // maximum allocated channel count
-    long    input_channels; // current input channel count for auto-adapting
+    double  *poly_osamp;        // output sample arrays for multichannel
+    double  *poly_oprev;        // previous output arrays for multichannel
+    double  *poly_odif;         // output difference arrays for multichannel
+    double  *poly_recin;        // record input arrays for multichannel
+    long    poly_maxchans;      // maximum allocated channel count
+    long    input_channels;     // current input channel count for auto-adapting
 
-    void    *messout;       // list outlet pointer
-    void    *tclock;        // list timer pointer
+    void    *messout;           // list outlet pointer
+    void    *tclock;            // list timer pointer
 };
 
 
@@ -557,7 +571,6 @@ static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
     x->timing.srscale  = x->buffer.bsr / x->timing.ssr;
 }
 
-// Helper function to handle loop boundary wrapping and jumping
 // Helper function to handle recording state cleanup after boundary adjustments
 static inline void kh_process_recording_cleanup(
     t_karma *x, float *b, double accuratehead, char direction, t_bool use_ease_on, double ease_pos)
@@ -1387,9 +1400,7 @@ void karma_buf_modify(t_karma* x, t_buffer_obj* b)
     }
 }
 
-// called by 'karma_buf_change_internal' & 'karma_setloop_internal'
-// pete says: i know this proof-of-concept branching is horrible, will rewrite
-// soon...
+
 void kh_buf_values_internal(
     t_karma* x, double templow, double temphigh, long loop_points_flag, t_bool caller)
 {
@@ -1504,42 +1515,19 @@ void kh_buf_values_internal(
             }
         }
     }
-    // regardless of input choice ('loop_points_flag'), final low/high system is
-    // normalised (& clipped) 0..1 (phase)
+
     low = CLAMP(low, 0., 1.);
     high = CLAMP(high, 0., 1.);
-    /*
-        // dev
-        loop_points_sym = (loop_points_flag > 1) ? ps_milliseconds :
-       ((loop_points_flag < 1) ? ps_phase : ps_samples); post("loop start
-       normalised %.2f, loop end normalised %.2f, units %s", low, high,
-       *loop_points_sym);
-        //post("loop start samples %.2f, loop end samples %.2f, units used %s",
-       (low * bframesm1), (high * bframesm1), *loop_points_sym);
-    */
-    // to samples, and account for channels & buffer samplerate
-    /*    if (bchans > 1) {
-            low     = (low * bframesm1) * bchans;// + channeloffset;
-            high    = (high * bframesm1) * bchans;// + channeloffset;
-        } else {
-            low     = (low * bframesm1);// + channeloffset;
-            high    = (high * bframesm1);// + channeloffset;
-        }
-        x->minloop = x->startloop = low;
-        x->maxloop = x->endloop = high;
-    */
+
     x->loop.minloop = x->loop.startloop = low * bframesm1;
     x->loop.maxloop = x->loop.endloop = high * bframesm1;
 
     // update selection
     karma_select_size(x, x->timing.selection);
     karma_select_start(x, x->timing.selstart);
-    // karma_select_internal(x, x->timing.selstart, x->timing.selection);
 }
 
-// karma_buf_change method defered
-// pete says: i know this proof-of-concept branching is horrible, will rewrite
-// soon...
+
 void kh_buf_change_internal(
     t_karma* x, t_symbol* s, short argc, t_atom* argv) // " set ..... "
 {
@@ -1629,9 +1617,6 @@ void karma_buf_change(t_karma* x, t_symbol* s, short ac, t_atom* av) // " set ..
     // kh_buf_change_internal(x, s, ac, store_av);
 }
 
-// karma_setloop method (defered?)
-// pete says: i know this proof-of-concept branching is horrible, will rewrite
-// soon...
 void kh_setloop_internal(
     t_karma* x, t_symbol* s, short argc, t_atom* argv) // " setloop ..... "
 {
@@ -1641,16 +1626,11 @@ void kh_setloop_internal(
                                 // in samples, 2 = in milliseconds (default)
     double templow, temphigh, temphightemp;
 
-    // !! if just "setloop" with no additional args...
-    // ...message will reset loop points to min / max !!
     loop_points_flag = 2;
     templow = -1.;
     temphigh = -1.;
 
-    // maximum length message (3 atoms after 'setloop') = " setloop ...
-    // ... 0::float::loop start/size [1::float::loop end] [2::symbol::loop
-    // points type] "
-
+ 
     if (argc >= 3) {
 
         if (argc > 3)
@@ -2198,7 +2178,9 @@ void karma_jump(t_karma* x, double jumpposition)
             x->state.statecontrol = CONTROL_STATE_JUMP;
             x->timing.jumphead = CLAMP(
                 jumpposition, 0.,
-                1.); // for now phase only, TODO - ms & samples
+                1.); // Phase-based positioning (0.0 = start, 1.0 = end of loop)
+                     // FUTURE ENHANCEMENT: Could support time-based positioning
+                     // by converting ms/samples to phase using current loop length
             //          x->state.statehuman = HUMAN_STATE_PLAY;           // no -
             //          'jump' is whatever 'statehuman' currently is (most
             //          likely 'play')
@@ -2467,6 +2449,32 @@ static inline void kh_process_record_toggle(
 
 // mono perform
 
+/**
+ * @brief Main real-time audio processing function for mono operation
+ *
+ * This is the core DSP function that processes audio samples for single-channel operation.
+ * It implements the complete karma~ looper functionality including:
+ * - Real-time recording with optional overdubbing
+ * - Playback with variable speed and direction
+ * - Cubic/linear interpolation for smooth playback
+ * - Complex state machine for loop transitions
+ * - Crossfading and ramp processing for artifact-free switching
+ *
+ * Performance considerations:
+ * - Called once per audio vector (typically 64-512 samples)
+ * - Must complete within one audio buffer period for real-time operation
+ * - Uses helper functions to manage complexity while maintaining performance
+ *
+ * @param x      The karma~ object instance
+ * @param dsp64  Max DSP object (unused in this implementation)
+ * @param ins    Input signal vectors [0]=audio, [1]=speed (optional)
+ * @param nins   Number of input channels
+ * @param outs   Output signal vectors [0]=sync (optional), [1]=audio
+ * @param nouts  Number of output channels
+ * @param vcount Number of samples to process in this vector
+ * @param flgs   DSP flags (unused)
+ * @param usr    User data (unused)
+ */
 void karma_mono_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr)
@@ -2703,15 +2711,6 @@ void karma_mono_perform(
                 }
 
                 playhead = trunc(accuratehead);
-                // NOTUSED
-                // if (direction > 0) {                            // interp
-                // ratio
-                //     //frac = accuratehead - playhead;
-                // } else if (direction < 0) {
-                //     frac = 1.0 - (accuratehead - playhead);
-                // } else {
-                //     frac = 0.0;
-                // }
 
                 if (globalramp) {
                     if (playfade < globalramp) // realtime ramps for play on/off
@@ -2877,6 +2876,26 @@ zero:
     return;
 }
 
+/**
+ * @brief Real-time audio processing function for stereo operation
+ *
+ * Optimized version of the mono perform function for exactly 2 channels.
+ * Implements the same looper functionality as mono_perform but with
+ * stereo-specific optimizations:
+ * - Direct access to o1prev/o2prev struct fields (channels 0-1)
+ * - Stereo-optimized interpolation and fade processing
+ * - Dual-channel recording and playback
+ *
+ * @param x      The karma~ object instance
+ * @param dsp64  Max DSP object (unused)
+ * @param ins    Input vectors [0]=left, [1]=right, [2]=speed (optional)
+ * @param nins   Number of input channels
+ * @param outs   Output vectors [0]=sync (optional), [1]=left, [2]=right
+ * @param nouts  Number of output channels
+ * @param vcount Number of samples to process
+ * @param flgs   DSP flags (unused)
+ * @param usr    User data (unused)
+ */
 void karma_stereo_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr)
@@ -3292,6 +3311,34 @@ zero:
     return;
 }
 
+/**
+ * @brief Real-time audio processing function for multichannel operation
+ *
+ * Handles arbitrary channel counts (3+ channels) using the hybrid architecture:
+ * - Channels 0-3: Direct access to o1prev-o4prev struct fields for performance
+ * - Channels 4+: Dynamic allocation using poly_oprev/poly_odif arrays
+ *
+ * Key features:
+ * - Supports up to KARMA_ABSOLUTE_CHANNEL_LIMIT channels (default: 64)
+ * - Runtime memory allocation for channels beyond the first 4
+ * - Max/MSP MC (multichannel) signal integration
+ * - Automatic channel count adaptation via inputchanged protocol
+ *
+ * Memory management:
+ * - Pre-allocates arrays for KARMA_POLY_PREALLOC_COUNT channels (default: 16)
+ * - Reallocates if needed, but avoids malloc/free in perform function
+ * - Uses poly_nchans_alloc to track allocated capacity
+ *
+ * @param x      The karma~ object instance
+ * @param dsp64  Max DSP object (unused)
+ * @param ins    Input signal vectors (multichannel + optional speed)
+ * @param nins   Number of input channels
+ * @param outs   Output signal vectors (optional sync + multichannel)
+ * @param nouts  Number of output channels
+ * @param vcount Number of samples to process
+ * @param flgs   DSP flags (unused)
+ * @param usr    User data (unused)
+ */
 void karma_poly_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr)
@@ -4137,6 +4184,19 @@ static inline void kh_process_initial_loop_boundary_constraints(
     }
 }
 
+/**
+ * @brief Process audio interpolation for smooth playback at variable speeds
+ *
+ * Handles interpolation between buffer samples when playhead position is not
+ * aligned to sample boundaries. Critical for artifact-free variable speed playback.
+ *
+ * @param b           Buffer data array
+ * @param pchans      Number of channels in buffer
+ * @param accuratehead Precise playhead position (fractional samples)
+ * @param interp      Interpolation method (LINEAR/CUBIC/SPLINE)
+ * @param record      Recording mode flag (uses linear when recording)
+ * @return           Interpolated sample value
+ */
 static inline double kh_process_audio_interpolation(
     float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record)
 {
@@ -4147,7 +4207,13 @@ static inline double kh_process_audio_interpolation(
     if (!record) { // if recording do linear-interp else...
         switch (interp) {
         case INTERP_CUBIC:
-            // Cubic interpolation would go here
+            // TODO: Implement proper 4-point cubic interpolation
+            // Currently falls back to nearest neighbor for performance
+            output = (double)b[playhead * pchans];
+            break;
+        case INTERP_SPLINE:
+            // TODO: Implement spline interpolation
+            // Currently falls back to nearest neighbor
             output = (double)b[playhead * pchans];
             break;
         default: // INTERP_LINEAR

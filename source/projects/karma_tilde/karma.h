@@ -13,29 +13,55 @@
 // ENUM DEFINITIONS
 // =============================================================================
 
-// Enum definitions for clearer state management
+// =============================================================================
+// STATE MACHINE ENUMS
+// =============================================================================
+
+/**
+ * @brief Internal control state machine for precise looper operation
+ *
+ * This enum manages the detailed internal state transitions that drive the
+ * audio processing engine. States are triggered by user actions and manage
+ * complex timing-sensitive operations like fade in/out, overdub transitions,
+ * and loop boundary handling.
+ *
+ * State Transition Flow:
+ * ZERO -> RECORD_INITIAL_LOOP (first recording)
+ * RECORD_INITIAL_LOOP -> PLAY_ON (loop complete)
+ * PLAY_ON -> RECORD_ALT (overdub start)
+ * RECORD_ALT -> PLAY_ALT (overdub end)
+ * Any state -> JUMP (position change)
+ * PLAY_ON -> APPEND -> RECORD_ON (extend loop)
+ */
 typedef enum {
-    CONTROL_STATE_ZERO = 0,                // zero/idle
-    CONTROL_STATE_RECORD_INITIAL_LOOP = 1, // record initial loop
-    CONTROL_STATE_RECORD_ALT = 2,          // record alternateflag (into overdub)
-    CONTROL_STATE_RECORD_OFF = 3,          // record off regular
-    CONTROL_STATE_PLAY_ALT = 4,            // play alternateflag (out of overdub)
-    CONTROL_STATE_PLAY_ON = 5,             // play on regular
-    CONTROL_STATE_STOP_ALT = 6,            // stop alternateflag (after overdub)
-    CONTROL_STATE_STOP_REGULAR = 7,        // stop regular
-    CONTROL_STATE_JUMP = 8,                // jump
-    CONTROL_STATE_APPEND = 9,              // append
-    CONTROL_STATE_APPEND_SPECIAL = 10,     // special case append (into record/overdub)
-    CONTROL_STATE_RECORD_ON = 11           // record on regular (non-looped)
+    CONTROL_STATE_ZERO = 0,                // Idle state - no loop exists
+    CONTROL_STATE_RECORD_INITIAL_LOOP = 1, // Recording the first loop
+    CONTROL_STATE_RECORD_ALT = 2,          // Recording overdub layer
+    CONTROL_STATE_RECORD_OFF = 3,          // Stopping record with fade out
+    CONTROL_STATE_PLAY_ALT = 4,            // Playing after overdub
+    CONTROL_STATE_PLAY_ON = 5,             // Normal playback state
+    CONTROL_STATE_STOP_ALT = 6,            // Stopping after overdub
+    CONTROL_STATE_STOP_REGULAR = 7,        // Normal stop with fade out
+    CONTROL_STATE_JUMP = 8,                // Jump to specific position
+    CONTROL_STATE_APPEND = 9,              // Append mode preparation
+    CONTROL_STATE_APPEND_SPECIAL = 10,     // Append during record/overdub
+    CONTROL_STATE_RECORD_ON = 11           // Non-looped recording (append mode)
 } control_state_t;
 
+/**
+ * @brief User-facing state representation for interface feedback
+ *
+ * Simplified state machine that represents what the user sees and understands.
+ * Maps to the complex internal control_state_t but provides clear, intuitive
+ * state names for UI elements and user feedback.
+ */
 typedef enum {
-    HUMAN_STATE_STOP = 0,    // stop
-    HUMAN_STATE_PLAY = 1,    // play
-    HUMAN_STATE_RECORD = 2,  // record
-    HUMAN_STATE_OVERDUB = 3, // overdub
-    HUMAN_STATE_APPEND = 4,  // append
-    HUMAN_STATE_INITIAL = 5  // initial
+    HUMAN_STATE_STOP = 0,    // Stopped - no audio output
+    HUMAN_STATE_PLAY = 1,    // Playing back recorded loop
+    HUMAN_STATE_RECORD = 2,  // Recording new material
+    HUMAN_STATE_OVERDUB = 3, // Overdubbing onto existing loop
+    HUMAN_STATE_APPEND = 4,  // Appending to extend loop length
+    HUMAN_STATE_INITIAL = 5  // Initial state before first recording
 } human_state_t;
 
 typedef enum {
@@ -48,10 +74,35 @@ typedef enum {
     SWITCHRAMP_EXPO_IN_OUT = 6 // exponential ease in/out
 } switchramp_type_t;
 
+/**
+ * @brief Audio interpolation methods for variable-speed playback
+ *
+ * Different interpolation algorithms provide trade-offs between:
+ * - Audio quality (frequency response, aliasing)
+ * - CPU performance (computational cost)
+ * - Implementation complexity
+ *
+ * INTERP_LINEAR: Fastest, moderate quality
+ * - Computational cost: 1 multiply + 1 add per sample
+ * - Frequency response: -6dB at Nyquist, some aliasing
+ * - Best for: Real-time performance, slight speed variations
+ *
+ * INTERP_CUBIC: Better quality, higher cost
+ * - Computational cost: ~4x linear (4-point interpolation)
+ * - Frequency response: Improved high-frequency preservation
+ * - Best for: Musical applications, noticeable speed changes
+ * - Status: Currently falls back to nearest neighbor (placeholder)
+ *
+ * INTERP_SPLINE: Highest quality, highest cost
+ * - Computational cost: Significantly higher than cubic
+ * - Frequency response: Best preservation across spectrum
+ * - Best for: Critical listening, large speed variations
+ * - Status: Not yet implemented
+ */
 typedef enum {
-    INTERP_LINEAR = 0, // linear interpolation
-    INTERP_CUBIC = 1,  // cubic interpolation
-    INTERP_SPLINE = 2  // spline interpolation
+    INTERP_LINEAR = 0, // Linear interpolation (implemented, default)
+    INTERP_CUBIC = 1,  // Cubic interpolation (placeholder implementation)
+    INTERP_SPLINE = 2  // Spline interpolation (not implemented)
 } interp_type_t;
 
 typedef struct t_karma t_karma;
