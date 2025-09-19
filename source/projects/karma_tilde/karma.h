@@ -9,15 +9,8 @@
 
 #include "ext_atomic.h"
 
-// Constants for magic numbers
-#define KARMA_MIN_LOOP_SIZE 4096
-#define KARMA_DEFAULT_FADE_SAMPLES 256
-#define KARMA_DEFAULT_FADE_SAMPLES_PLUS_ONE 257
-#define KARMA_SPEED_LIMIT_DIVISOR 1024
-#define KARMA_SENTINEL_VALUE -999.0
-#define KARMA_DEFAULT_REPORT_TIME_MS 50
-#define KARMA_MAX_RAMP_SAMPLES 2048
-#define KARMA_ASSIST_STRING_MAX_LEN 256
+// Configuration constants
+#include "karma_config.h"
 
 // Enum definitions for clearer state management
 typedef enum {

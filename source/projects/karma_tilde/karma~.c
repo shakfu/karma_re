@@ -1125,7 +1125,16 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         }
 
         // Allocate multichannel processing arrays for maximum expected channels
-        x->poly_maxchans = (chans > 4) ? chans : 4;  // Minimum 4, supports up to chans
+        long requested_chans = chans;
+        x->poly_maxchans = (chans > KARMA_STRUCT_CHANNEL_COUNT) ?
+                          ((chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) ? KARMA_ABSOLUTE_CHANNEL_LIMIT : chans) :
+                          KARMA_POLY_PREALLOC_COUNT;
+
+        // Warn if we had to clamp the channel count
+        if (chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) {
+            object_warn((t_object*)x, "Requested %ld channels, but maximum configured is %d. Using %d channels.",
+                       requested_chans, KARMA_ABSOLUTE_CHANNEL_LIMIT, KARMA_ABSOLUTE_CHANNEL_LIMIT);
+        }
         x->poly_osamp = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
         x->poly_oprev = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
         x->poly_odif = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
@@ -3233,10 +3242,17 @@ void karma_poly_perform(
     long syncoutlet = x->syncoutlet;
     long nchans = x->buffer.ochans;
 
-    // Safety check: ensure we don't exceed allocated memory
+    // Safety check: ensure we don't exceed allocated memory or configuration limits
     if (nchans > x->poly_maxchans) {
         nchans = x->poly_maxchans;
     }
+#if KARMA_VALIDATE_CHANNEL_BOUNDS
+    if (nchans > KARMA_ABSOLUTE_CHANNEL_LIMIT) {
+        error("karma~: Channel count %ld exceeds maximum configured channels (%d)",
+              nchans, KARMA_ABSOLUTE_CHANNEL_LIMIT);
+        nchans = KARMA_ABSOLUTE_CHANNEL_LIMIT;
+    }
+#endif
 
     // MC Signal Routing (per Max MC API docs):
     // - ins[0..nchans-1] are audio inputs, ins[nchans] is speed
@@ -3325,7 +3341,7 @@ void karma_poly_perform(
     if (nchans > 1) { oprev[1] = x->audio.o2prev; odif[1] = x->audio.o2dif; }
     if (nchans > 2) { oprev[2] = x->audio.o3prev; odif[2] = x->audio.o3dif; }
     if (nchans > 3) { oprev[3] = x->audio.o4prev; odif[3] = x->audio.o4dif; }
-    for (i = 4; i < nchans; i++) {
+    for (i = KARMA_STRUCT_CHANNEL_COUNT; i < nchans; i++) {
         oprev[i] = 0.0;
         odif[i] = 0.0;
     }
