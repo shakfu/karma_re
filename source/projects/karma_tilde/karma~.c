@@ -242,10 +242,10 @@ static inline void kh_process_ipoke_recording(
 
 static inline void kh_process_recording_fade(
     double globalramp, long* recordfade, char* recfadeflag, t_bool* record,
-    t_bool* triginit, char* jumpflag);
+    t_bool* triginit, t_bool* jumpflag);
 
 static inline void kh_process_jump_logic(
-    t_karma *x, float *b, double *accuratehead, char *jumpflag, char direction);
+    t_karma *x, float *b, double *accuratehead, t_bool *jumpflag, char direction);
 
 static inline void kh_process_initial_loop_ipoke_recording(
     float* b, long pchans, long* recordhead, long playhead, double recin1,
@@ -2200,7 +2200,7 @@ void karma_mono_perform(
     control_state_t   statecontrol;
     switchramp_type_t snrtype;
     interp_type_t     interp;
-    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize = 0;
     long initiallow, initialhigh;
 
     t_buffer_obj* buf = buffer_ref_getobject(x->buffer.buf);
@@ -2648,7 +2648,7 @@ void karma_stereo_perform(
     control_state_t   statecontrol;
     switchramp_type_t snrtype;
     interp_type_t     interp;
-    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize = 0;
     long initiallow, initialhigh;
 
     t_buffer_obj* buf = buffer_ref_getobject(x->buffer.buf);
@@ -3126,7 +3126,7 @@ void karma_poly_perform(
     control_state_t   statecontrol;
     switchramp_type_t snrtype;
     interp_type_t     interp;
-    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize = 0;
     long initiallow, initialhigh;
 
     t_buffer_obj* buf = buffer_ref_getobject(x->buffer.buf);
@@ -3171,10 +3171,11 @@ void karma_poly_perform(
     overdubamp = x->audio.overdubamp;
     overdubprev = x->audio.overdubprev;
 
-    for (i = 0; i < nchans && i < 4; i++) {
-        oprev[i] = (&x->audio.o1prev)[i];
-        odif[i] = (&x->audio.o1dif)[i];
-    }
+    // Initialize arrays with individual struct members to avoid array bounds issues
+    if (nchans > 0) { oprev[0] = x->audio.o1prev; odif[0] = x->audio.o1dif; }
+    if (nchans > 1) { oprev[1] = x->audio.o2prev; odif[1] = x->audio.o2dif; }
+    if (nchans > 2) { oprev[2] = x->audio.o3prev; odif[2] = x->audio.o3dif; }
+    if (nchans > 3) { oprev[3] = x->audio.o4prev; odif[3] = x->audio.o4dif; }
     for (i = 4; i < nchans; i++) {
         oprev[i] = 0.0;
         odif[i] = 0.0;
@@ -3414,10 +3415,11 @@ void karma_poly_perform(
         directionprev = direction;
     }
 
-    for (i = 0; i < nchans && i < 4; i++) {
-        (&x->audio.o1prev)[i] = oprev[i];
-        (&x->audio.o1dif)[i] = odif[i];
-    }
+    // Update individual struct members to avoid array bounds issues
+    if (nchans > 0) { x->audio.o1prev = oprev[0]; x->audio.o1dif = odif[0]; }
+    if (nchans > 1) { x->audio.o2prev = oprev[1]; x->audio.o2dif = odif[1]; }
+    if (nchans > 2) { x->audio.o3prev = oprev[2]; x->audio.o3dif = odif[2]; }
+    if (nchans > 3) { x->audio.o4prev = oprev[3]; x->audio.o4dif = odif[3]; }
 
     x->state.record = record;
     x->state.recordprev = record;
@@ -3691,7 +3693,7 @@ void kh_process_ipoke_recording(
 
 static inline void kh_process_recording_fade(
     double globalramp, long* recordfade, char* recfadeflag, t_bool* record,
-    t_bool* triginit, char* jumpflag)
+    t_bool* triginit, t_bool* jumpflag)
 {
     if (globalramp) { // realtime ramps for record on/off
         if (*recordfade < globalramp) {
@@ -3723,7 +3725,7 @@ static inline void kh_process_recording_fade(
 }
 
 static inline void kh_process_jump_logic(
-    t_karma* x, float* b, double* accuratehead, char* jumpflag, char direction)
+    t_karma* x, float* b, double* accuratehead, t_bool* jumpflag, char direction)
 {
     if (*jumpflag) { // jump
         if (x->state.directionorig >= 0) {
