@@ -6,29 +6,11 @@
 // =============================================================================
 // This file contains configuration constants for the karma~ Max/MSP external.
 //
-// CONFIGURABLE CONSTANTS can be overridden at compile time by defining them
+// These CONFIGURABLE CONSTANTS can be overridden at compile time by defining them
 // before including this header or via compiler flags (e.g., -DKARMA_MIN_LOOP_SIZE=8192)
-//
-// NON-CONFIGURABLE CONSTANTS are architectural limits tied to code structure
-// and CANNOT be safely modified without code changes.
 
 // =============================================================================
-// NON-CONFIGURABLE ARCHITECTURAL CONSTANTS
-// =============================================================================
-// These constants reflect fundamental architectural limits and CANNOT be changed
-// without modifying the t_karma struct definition and related code.
-
-// The karma~ external uses a hybrid channel architecture for performance:
-// - Channels 1-4: Individual struct fields (o1prev, o2prev, o3prev, o4prev)
-// - Channels 5+:  Dynamically allocated arrays (poly_oprev[], poly_odif[], etc.)
-// This design maintains compatibility while supporting arbitrary channel counts.
-
-#define KARMA_STRUCT_CHANNEL_COUNT 4                // Fixed number of o1prev/o2prev/o3prev/o4prev
-                                                    // struct fields
-                                                    // ⚠️  DO NOT MODIFY - Tied to code structure
-
-// =============================================================================
-// CONFIGURABLE CONSTANTS - AUDIO PROCESSING
+// AUDIO PROCESSING
 // =============================================================================
 // These constants can be overridden at compile time for customization.
 
@@ -42,7 +24,7 @@
 #endif
 
 // =============================================================================
-// CONFIGURABLE CONSTANTS - MULTICHANNEL LIMITS
+// MULTICHANNEL LIMITS
 // =============================================================================
 
 #ifndef KARMA_POLY_PREALLOC_COUNT
@@ -57,7 +39,7 @@
 #endif
 
 // =============================================================================
-// CONFIGURABLE CONSTANTS - FADE AND RAMP CONFIGURATION
+// FADE AND RAMP CONFIGURATION
 // =============================================================================
 
 #ifndef KARMA_DEFAULT_FADE_SAMPLES
@@ -73,7 +55,7 @@
 #endif
 
 // =============================================================================
-// CONFIGURABLE CONSTANTS - USER INTERFACE
+// USER INTERFACE
 // =============================================================================
 
 #ifndef KARMA_DEFAULT_REPORT_TIME_MS
@@ -85,7 +67,7 @@
 #endif
 
 // =============================================================================
-// CONFIGURABLE CONSTANTS - INTERNAL CONFIGURATION
+// INTERNAL CONFIGURATION
 // =============================================================================
 
 #ifndef KARMA_SENTINEL_VALUE
@@ -102,7 +84,7 @@
 #endif
 
 // =============================================================================
-// CONFIGURABLE CONSTANTS - DEVELOPMENT AND DEBUGGING
+// DEVELOPMENT AND DEBUGGING
 // =============================================================================
 
 #ifndef KARMA_DEBUG_BUFFER_ACCESS
@@ -125,36 +107,5 @@
 #define KARMA_VALIDATE_BUFFER_SIZES 1               // Enable buffer size validation
 #endif
 
-// =============================================================================
-// CONFIGURATION VALIDATION
-// =============================================================================
-
-// Compile-time validation of configuration values
-#if KARMA_ABSOLUTE_CHANNEL_LIMIT > 256
-    #error "KARMA_ABSOLUTE_CHANNEL_LIMIT cannot exceed 256 (performance constraint)"
-#endif
-
-#if KARMA_MIN_LOOP_SIZE < 64
-    #error "KARMA_MIN_LOOP_SIZE must be at least 64 samples"
-#endif
-
-#if KARMA_POLY_PREALLOC_COUNT > KARMA_ABSOLUTE_CHANNEL_LIMIT
-    #error "KARMA_POLY_PREALLOC_COUNT cannot exceed KARMA_ABSOLUTE_CHANNEL_LIMIT"
-#endif
-
-// Validate architectural constraint (this should never change)
-#if KARMA_STRUCT_CHANNEL_COUNT != 4
-    #error "KARMA_STRUCT_CHANNEL_COUNT must be 4 (matches o1prev/o2prev/o3prev/o4prev struct fields)"
-#endif
-
-// =============================================================================
-// DERIVED CONFIGURATION VALUES
-// =============================================================================
-
-// Calculate derived values from base configuration
-#define KARMA_POLY_ARRAY_SIZE (KARMA_ABSOLUTE_CHANNEL_LIMIT * sizeof(double))
-
-// Interpolation buffer size calculation
-#define KARMA_INTERP_BUFFER_SIZE (KARMA_ABSOLUTE_CHANNEL_LIMIT * 4)  // 4 points per channel
 
 #endif // KARMA_CONFIG_H

@@ -9,8 +9,9 @@
 
 #include "ext_atomic.h"
 
-// Configuration constants
-#include "karma_config.h"
+// =============================================================================
+// ENUM DEFINITIONS
+// =============================================================================
 
 // Enum definitions for clearer state management
 typedef enum {

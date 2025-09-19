@@ -1,5 +1,62 @@
 #include "karma.h"
 
+// =============================================================================
+// CONFIGURABLE CONSTANTS
+// =============================================================================
+
+#include "karma_config.h"
+
+// =============================================================================
+// NON-CONFIGURABLE ARCHITECTURAL CONSTANTS
+// =============================================================================
+// These constants reflect fundamental architectural limits and CANNOT be changed
+// without modifying the t_karma struct definition and related code.
+
+// The karma~ external uses a hybrid channel architecture for performance:
+// - Channels 1-4: Individual struct fields (o1prev, o2prev, o3prev, o4prev)
+// - Channels 5+:  Dynamically allocated arrays (poly_oprev[], poly_odif[], etc.)
+// This design maintains compatibility while supporting arbitrary channel counts.
+
+#define KARMA_STRUCT_CHANNEL_COUNT 4  // Fixed number of o1prev/o2prev/o3prev/o4prev
+                                      // struct fields
+                                      // DO NOT MODIFY - Tied to code structure
+
+// =============================================================================
+// CONFIGURATION VALIDATION
+// =============================================================================
+
+// Compile-time validation of configuration values
+#if KARMA_ABSOLUTE_CHANNEL_LIMIT > 256
+    #error "KARMA_ABSOLUTE_CHANNEL_LIMIT cannot exceed 256 (performance constraint)"
+#endif
+
+#if KARMA_MIN_LOOP_SIZE < 64
+    #error "KARMA_MIN_LOOP_SIZE must be at least 64 samples"
+#endif
+
+#if KARMA_POLY_PREALLOC_COUNT > KARMA_ABSOLUTE_CHANNEL_LIMIT
+    #error "KARMA_POLY_PREALLOC_COUNT cannot exceed KARMA_ABSOLUTE_CHANNEL_LIMIT"
+#endif
+
+// Validate architectural constraint (this should never change)
+#if KARMA_STRUCT_CHANNEL_COUNT != 4
+    #error "KARMA_STRUCT_CHANNEL_COUNT must be 4 (matches o1prev/o2prev/o3prev/o4prev struct fields)"
+#endif
+
+// =============================================================================
+// DERIVED CONFIGURATION VALUES
+// =============================================================================
+
+// Calculate derived values from base configuration
+#define KARMA_POLY_ARRAY_SIZE (KARMA_ABSOLUTE_CHANNEL_LIMIT * sizeof(double))
+
+// Interpolation buffer size calculation
+#define KARMA_INTERP_BUFFER_SIZE (KARMA_ABSOLUTE_CHANNEL_LIMIT * 4)  // 4 points per channel
+
+// =============================================================================
+// KARMA OBJECT STRUCT
+// =============================================================================
+
 // clang-format off
 struct t_karma {
     
