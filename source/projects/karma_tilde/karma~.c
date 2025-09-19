@@ -257,6 +257,34 @@ static inline void kh_process_initial_loop_boundary_constraints(
 
 static inline double kh_process_audio_interpolation(
     float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record);
+
+static inline double kh_calculate_interpolation_fraction_and_osamp(
+    double accuratehead, char direction, float* b, long pchans, interp_type_t interp,
+    char directionorig, long maxloop, long frames, t_bool record);
+
+static inline double kh_process_ramps_and_fades(
+    double osamp1, double* o1prev, double* o1dif, double* snrfade, long* playfade,
+    double globalramp, double snrramp, switchramp_type_t snrtype, char* playfadeflag,
+    t_bool* go, t_bool* triginit, t_bool* jumpflag, t_bool* loopdetermine, t_bool record);
+
+static inline void kh_calculate_stereo_interpolation_and_osamp(
+    double accuratehead, char direction, float* b, long pchans, interp_type_t interp,
+    char directionorig, long maxloop, long frames, t_bool record,
+    double* osamp1, double* osamp2);
+
+static inline void kh_process_stereo_ramps_and_fades(
+    double* osamp1, double* osamp2, double* o1prev, double* o2prev, double* o1dif, double* o2dif,
+    double* snrfade, long* playfade, double globalramp, double snrramp, switchramp_type_t snrtype,
+    char* playfadeflag, t_bool* go, t_bool* triginit, t_bool* jumpflag, t_bool* loopdetermine, t_bool record);
+
+static inline void kh_calculate_poly_interpolation_and_osamp(
+    double accuratehead, char direction, float* b, long pchans, long nchans, interp_type_t interp,
+    char directionorig, long maxloop, long frames, t_bool record, double* osamp);
+
+static inline void kh_process_poly_ramps_and_fades(
+    double* osamp, double* oprev, double* odif, long nchans, double* snrfade, long* playfade,
+    double globalramp, double snrramp, switchramp_type_t snrtype, char* playfadeflag,
+    t_bool* go, t_bool* triginit, t_bool* jumpflag, t_bool* loopdetermine, t_bool record);
 void kh_process_ipoke_recording_stereo(
     float* b, long pchans, long playhead, long* recordhead, double recin1, double recin2,
     double overdubamp, double globalramp, long recordfade, char recfadeflag,
@@ -556,8 +584,8 @@ static inline void kh_process_loop_boundary(
     double speedsrscaled = speed * x->timing.srscale;
     
     if (x->state.record) {
-        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? 
-                       ((setloopsize / 1024) * direction) : speedsrscaled;
+        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / KARMA_SPEED_LIMIT_DIVISOR)) ?
+                       ((setloopsize / KARMA_SPEED_LIMIT_DIVISOR) * direction) : speedsrscaled;
     }
     *accuratehead = *accuratehead + speedsrscaled;
     
@@ -646,7 +674,7 @@ static inline void kh_process_loop_initialization(
     if (triginit) {
         if (x->state.recendmark) {  // calculate end of loop
             if (x->state.directionorig >= 0) {
-                x->loop.maxloop = CLAMP(x->timing.maxhead, 4096, x->buffer.bframes - 1);
+                x->loop.maxloop = CLAMP(x->timing.maxhead, KARMA_MIN_LOOP_SIZE, x->buffer.bframes - 1);
                 *setloopsize = x->loop.maxloop - x->loop.minloop;
                 *accuratehead = x->loop.startloop = x->loop.minloop + (x->timing.selstart * (*setloopsize));
                 x->loop.endloop = x->loop.startloop + (x->timing.selection * (*setloopsize));
@@ -661,7 +689,7 @@ static inline void kh_process_loop_initialization(
                         kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
                 }
             } else {
-                x->loop.maxloop = CLAMP((x->buffer.bframes - 1) - x->timing.maxhead, 4096, x->buffer.bframes - 1);
+                x->loop.maxloop = CLAMP((x->buffer.bframes - 1) - x->timing.maxhead, KARMA_MIN_LOOP_SIZE, x->buffer.bframes - 1);
                 *setloopsize = x->loop.maxloop - x->loop.minloop;
                 x->loop.startloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->timing.selstart * (*setloopsize));
                 if (x->loop.endloop > (x->buffer.bframes - 1)) {
@@ -777,6 +805,205 @@ static inline void kh_interp_index(
     *indx3 = kh_wrap_index(*indx2 + direction, directionorig, maxloop, framesm1);
 }
 
+// Calculate interpolation fraction and perform audio interpolation in one step
+static inline double kh_calculate_interpolation_fraction_and_osamp(
+    double accuratehead, char direction, float* b, long pchans, interp_type_t interp,
+    char directionorig, long maxloop, long frames, t_bool record)
+{
+    long playhead = trunc(accuratehead);
+    double frac;
+    long interp0, interp1, interp2, interp3;
+
+    // Calculate interpolation fraction based on direction
+    if (direction > 0) {
+        frac = accuratehead - playhead;
+    } else if (direction < 0) {
+        frac = 1.0 - (accuratehead - playhead);
+    } else {
+        frac = 0.0;
+    }
+
+    // Get interpolation indices
+    kh_interp_index(
+        playhead, &interp0, &interp1, &interp2, &interp3, direction,
+        directionorig, maxloop, frames - 1);
+
+    // Perform playback interpolation and return result
+    return kh_perform_playback_interpolation(
+        frac, b, interp0, interp1, interp2, interp3, pchans, interp, record);
+}
+
+// Process ramps and fades for audio output
+static inline double kh_process_ramps_and_fades(
+    double osamp1, double* o1prev, double* o1dif, double* snrfade, long* playfade,
+    double globalramp, double snrramp, switchramp_type_t snrtype, char* playfadeflag,
+    t_bool* go, t_bool* triginit, t_bool* jumpflag, t_bool* loopdetermine, t_bool record)
+{
+    if (globalramp) {
+        // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
+        if (*snrfade < 1.0) {
+            if (*snrfade == 0.0) {
+                *o1dif = *o1prev - osamp1;
+            }
+            osamp1 += kh_ease_switchramp(*o1dif, *snrfade, snrtype);
+            *snrfade += 1.0 / snrramp;
+        }
+
+        if (*playfade < globalramp) { // realtime ramps for play on/off
+            osamp1 = kh_ease_record(osamp1, (*playfadeflag > 0), globalramp, *playfade);
+            (*playfade)++;
+            if (*playfade >= globalramp) {
+                kh_process_playfade_state(
+                    playfadeflag, go, triginit, jumpflag, loopdetermine,
+                    playfade, snrfade, record);
+            }
+        }
+    } else {
+        kh_process_playfade_state(
+            playfadeflag, go, triginit, jumpflag, loopdetermine,
+            playfade, snrfade, record);
+    }
+
+    return osamp1;
+}
+
+// Calculate stereo interpolation and get both output samples
+static inline void kh_calculate_stereo_interpolation_and_osamp(
+    double accuratehead, char direction, float* b, long pchans, interp_type_t interp,
+    char directionorig, long maxloop, long frames, t_bool record,
+    double* osamp1, double* osamp2)
+{
+    long playhead = trunc(accuratehead);
+    double frac;
+    long interp0, interp1, interp2, interp3;
+
+    // Calculate interpolation fraction based on direction
+    if (direction > 0) {
+        frac = accuratehead - playhead;
+    } else if (direction < 0) {
+        frac = 1.0 - (accuratehead - playhead);
+    } else {
+        frac = 0.0;
+    }
+
+    // Get interpolation indices
+    kh_interp_index(
+        playhead, &interp0, &interp1, &interp2, &interp3, direction,
+        directionorig, maxloop, frames - 1);
+
+    // Perform playback interpolation for both channels
+    *osamp1 = kh_perform_playback_interpolation(
+        frac, b, interp0, interp1, interp2, interp3, pchans, interp, record);
+    *osamp2 = (pchans > 1) ? kh_perform_playback_interpolation(
+        frac, b, interp0 + 1, interp1 + 1, interp2 + 1, interp3 + 1, pchans, interp, record) : *osamp1;
+}
+
+// Process ramps and fades for stereo audio output
+static inline void kh_process_stereo_ramps_and_fades(
+    double* osamp1, double* osamp2, double* o1prev, double* o2prev, double* o1dif, double* o2dif,
+    double* snrfade, long* playfade, double globalramp, double snrramp, switchramp_type_t snrtype,
+    char* playfadeflag, t_bool* go, t_bool* triginit, t_bool* jumpflag, t_bool* loopdetermine, t_bool record)
+{
+    if (globalramp) {
+        // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
+        if (*snrfade < 1.0) {
+            if (*snrfade == 0.0) {
+                *o1dif = *o1prev - *osamp1;
+                *o2dif = *o2prev - *osamp2;
+            }
+            *osamp1 += kh_ease_switchramp(*o1dif, *snrfade, snrtype);
+            *osamp2 += kh_ease_switchramp(*o2dif, *snrfade, snrtype);
+            *snrfade += 1.0 / snrramp;
+        }
+
+        if (*playfade < globalramp) { // realtime ramps for play on/off
+            *osamp1 = kh_ease_record(*osamp1, (*playfadeflag > 0), globalramp, *playfade);
+            *osamp2 = kh_ease_record(*osamp2, (*playfadeflag > 0), globalramp, *playfade);
+            (*playfade)++;
+            if (*playfade >= globalramp) {
+                kh_process_playfade_state(
+                    playfadeflag, go, triginit, jumpflag, loopdetermine,
+                    playfade, snrfade, record);
+            }
+        }
+    } else {
+        kh_process_playfade_state(
+            playfadeflag, go, triginit, jumpflag, loopdetermine,
+            playfade, snrfade, record);
+    }
+}
+
+// Calculate multichannel interpolation and get all output samples
+static inline void kh_calculate_poly_interpolation_and_osamp(
+    double accuratehead, char direction, float* b, long pchans, long nchans, interp_type_t interp,
+    char directionorig, long maxloop, long frames, t_bool record, double* osamp)
+{
+    long playhead = trunc(accuratehead);
+    double frac;
+    long interp0, interp1, interp2, interp3;
+    long i;
+
+    // Calculate interpolation fraction based on direction
+    if (direction > 0) {
+        frac = accuratehead - playhead;
+    } else if (direction < 0) {
+        frac = 1.0 - (accuratehead - playhead);
+    } else {
+        frac = 0.0;
+    }
+
+    // Get interpolation indices
+    kh_interp_index(
+        playhead, &interp0, &interp1, &interp2, &interp3, direction,
+        directionorig, maxloop, frames - 1);
+
+    // Perform playback interpolation for all channels
+    for (i = 0; i < nchans; i++) {
+        long chan_offset = i % pchans;
+        osamp[i] = kh_perform_playback_interpolation(
+            frac, b + chan_offset, interp0 * pchans, interp1 * pchans,
+            interp2 * pchans, interp3 * pchans, pchans, interp, record);
+    }
+}
+
+// Process ramps and fades for multichannel audio output
+static inline void kh_process_poly_ramps_and_fades(
+    double* osamp, double* oprev, double* odif, long nchans, double* snrfade, long* playfade,
+    double globalramp, double snrramp, switchramp_type_t snrtype, char* playfadeflag,
+    t_bool* go, t_bool* triginit, t_bool* jumpflag, t_bool* loopdetermine, t_bool record)
+{
+    long i;
+
+    if (globalramp) {
+        // "Switch and Ramp" processing
+        if (*snrfade < 1.0) {
+            for (i = 0; i < nchans; i++) {
+                if (*snrfade == 0.0) {
+                    odif[i] = oprev[i] - osamp[i];
+                }
+                osamp[i] += kh_ease_switchramp(odif[i], *snrfade, snrtype);
+            }
+            *snrfade += 1.0 / snrramp;
+        }
+
+        if (*playfade < globalramp) { // realtime ramps for play on/off
+            for (i = 0; i < nchans; i++) {
+                osamp[i] = kh_ease_record(osamp[i], (*playfadeflag > 0), globalramp, *playfade);
+            }
+            (*playfade)++;
+            if (*playfade >= globalramp) {
+                kh_process_playfade_state(
+                    playfadeflag, go, triginit, jumpflag, loopdetermine,
+                    playfade, snrfade, record);
+            }
+        }
+    } else {
+        kh_process_playfade_state(
+            playfadeflag, go, triginit, jumpflag, loopdetermine,
+            playfade, snrfade, record);
+    }
+}
+
 
 void ext_main(void *r)
 {
@@ -812,11 +1039,11 @@ void ext_main(void *r)
     CLASS_ATTR_LABEL(c, "report", 0, "Report Time (ms) for data outlet");
     
     CLASS_ATTR_LONG(c, "ramp", 0, t_karma, fade.globalramp);         // !! change this to ms input !!    // !! change to "[something else]" ??
-    CLASS_ATTR_FILTER_CLIP(c, "ramp", 0, 2048);
+    CLASS_ATTR_FILTER_CLIP(c, "ramp", 0, KARMA_MAX_RAMP_SAMPLES);
     CLASS_ATTR_LABEL(c, "ramp", 0, "Ramp Time (samples)");
     
     CLASS_ATTR_LONG(c, "snramp", 0, t_karma, fade.snrramp);          // !! change this to ms input !!    // !! change to "[something else]" ??
-    CLASS_ATTR_FILTER_CLIP(c, "snramp", 0, 2048);
+    CLASS_ATTR_FILTER_CLIP(c, "snramp", 0, KARMA_MAX_RAMP_SAMPLES);
     CLASS_ATTR_LABEL(c, "snramp", 0, "Switch&Ramp Time (samples)");
     
     CLASS_ATTR_LONG(c, "snrcurv", 0, t_karma, fade.snrtype);         // !! change to "[something else]" ??
@@ -906,9 +1133,9 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->input_channels = chans;  // Initialize input channel count
 
         x->timing.recordhead = -1;
-        x->reportlist = 50;                          // ms
-        x->fade.snrramp = x->fade.globalramp = 256;  // samps...
-        x->fade.playfade = x->fade.recordfade = 257; // ...
+        x->reportlist = KARMA_DEFAULT_REPORT_TIME_MS;                          // ms
+        x->fade.snrramp = x->fade.globalramp = KARMA_DEFAULT_FADE_SAMPLES;  // samps...
+        x->fade.playfade = x->fade.recordfade = KARMA_DEFAULT_FADE_SAMPLES_PLUS_ONE; // ...
         x->timing.ssr = sys_getsr();
         x->timing.vs = sys_getblksize();
         x->timing.vsnorm = x->timing.vs / x->timing.ssr;
@@ -1273,7 +1500,7 @@ void kh_buf_change_internal(
     kh_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
 
     // Check for early return flag from ps_originalloop handling
-    if (templow == -999.0) {
+    if (templow == KARMA_SENTINEL_VALUE) {
         return;
     }
 
@@ -1616,16 +1843,16 @@ void karma_assist(t_karma* x, void* b, long m, long a, char* s)
         case 0:
             if (dummy == 1) {
                 if (x->buffer.ochans == 1)
-                    strncpy_zero(s, "(signal) Record Input / messages to karma~", 256);
+                    strncpy_zero(s, "(signal) Record Input / messages to karma~", KARMA_ASSIST_STRING_MAX_LEN);
                 else
-                    strncpy_zero(s, "(signal) Record Input 1 / messages to karma~", 256);
+                    strncpy_zero(s, "(signal) Record Input 1 / messages to karma~", KARMA_ASSIST_STRING_MAX_LEN);
             } else {
-                snprintf_zero(s, 256, "(signal) Record Input %ld", dummy);
+                snprintf_zero(s, KARMA_ASSIST_STRING_MAX_LEN, "(signal) Record Input %ld", dummy);
                 // @in 0 @type signal @digest Audio Inlet(s)... (object arg #2)
             }
             break;
         case 1:
-            strncpy_zero(s, "(signal/float) Speed Factor (1. == normal speed)", 256);
+            strncpy_zero(s, "(signal/float) Speed Factor (1. == normal speed)", KARMA_ASSIST_STRING_MAX_LEN);
             // @in 1 @type signal_or_float @digest Speed Factor (1. = normal
             // speed, < 1. = slower, > 1. = faster)
             break;
@@ -1636,14 +1863,14 @@ void karma_assist(t_karma* x, void* b, long m, long a, char* s)
         switch (a) {
         case 0:
             if (x->buffer.ochans == 1)
-                strncpy_zero(s, "(signal) Audio Output", 256);
+                strncpy_zero(s, "(signal) Audio Output", KARMA_ASSIST_STRING_MAX_LEN);
             else
-                snprintf_zero(s, 256, "(signal) Audio Output %ld", dummy);
+                snprintf_zero(s, KARMA_ASSIST_STRING_MAX_LEN, "(signal) Audio Output %ld", dummy);
             // @out 0 @type signal @digest Audio Outlet(s)... (object arg #2)
             break;
         case 1:
             if (synclet)
-                strncpy_zero(s, "(signal) Sync Outlet (current position 0..1)", 256);
+                strncpy_zero(s, "(signal) Sync Outlet (current position 0..1)", KARMA_ASSIST_STRING_MAX_LEN);
             // @out 1 @type signal @digest if chosen (@syncout 1) Sync Outlet
             // (current position 0..1)
             else
@@ -2334,50 +2561,14 @@ void karma_mono_perform(
 
                 /* calculate_head() to here */
 
-                // interp ratio
-                playhead = trunc(accuratehead);
-                if (direction > 0) {
-                    frac = accuratehead - playhead;
-                } else if (direction < 0) {
-                    frac = 1.0 - (accuratehead - playhead);
-                } else {
-                    frac = 0.0;
-                } // setloopsize  // ??
-                kh_interp_index(
-                    playhead, &interp0, &interp1, &interp2, &interp3, direction,
-                    directionorig, maxloop, frames - 1); // samp-indices
+                // Calculate interpolation and get output sample
+                osamp1 = kh_calculate_interpolation_fraction_and_osamp(
+                    accuratehead, direction, b, pchans, interp, directionorig, maxloop, frames, record);
 
-                // Perform playback interpolation
-                osamp1 = kh_perform_playback_interpolation(
-                    frac, b, interp0, interp1, interp2, interp3, pchans, interp, record);
-
-                if (globalramp) { // "Switch and Ramp" -
-                                  // http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                    if (snrfade < 1.0) {
-                        if (snrfade == 0.0) {
-                            o1dif = o1prev - osamp1;
-                        }
-                        osamp1 += kh_ease_switchramp(
-                            o1dif, snrfade, snrtype); // <- easing-curv options
-                                                      // implemented by raja
-                        snrfade += 1 / snrramp;
-                    } // "Switch and Ramp" end
-
-                    if (playfade < globalramp) { // realtime ramps for play on/off
-                        osamp1 = kh_ease_record(
-                            osamp1, (playfadeflag > 0), globalramp, playfade);
-                        playfade++;
-                        if (playfade >= globalramp) {
-                            kh_process_playfade_state(
-                                &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
-                                &playfade, &snrfade, record);
-                        }
-                    }
-                } else {
-                    kh_process_playfade_state(
-                        &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
-                        &playfade, &snrfade, record);
-                }
+                // Process ramps and fades
+                osamp1 = kh_process_ramps_and_fades(
+                    osamp1, &o1prev, &o1dif, &snrfade, &playfade, globalramp, snrramp, snrtype,
+                    &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine, record);
 
             } else {
                 osamp1 = 0.0;
@@ -2775,57 +2966,15 @@ void karma_stereo_perform(
                     }
                 }
 
-                // interp ratio
-                playhead = trunc(accuratehead);
-                if (direction > 0) {
-                    frac = accuratehead - playhead;
-                } else if (direction < 0) {
-                    frac = 1.0 - (accuratehead - playhead);
-                } else {
-                    frac = 0.0;
-                }
-                kh_interp_index(
-                    playhead, &interp0, &interp1, &interp2, &interp3, direction,
-                    directionorig, maxloop, frames - 1); // samp-indices
+                // Calculate stereo interpolation and get output samples
+                kh_calculate_stereo_interpolation_and_osamp(
+                    accuratehead, direction, b, pchans, interp, directionorig, maxloop, frames, record,
+                    &osamp1, &osamp2);
 
-                // Perform playback interpolation for both channels
-                osamp1 = kh_perform_playback_interpolation(
-                    frac, b, interp0, interp1, interp2, interp3, pchans, interp, record);
-                osamp2 = (pchans > 1) ? kh_perform_playback_interpolation(
-                    frac, b, interp0 + 1, interp1 + 1, interp2 + 1, interp3 + 1, pchans, interp, record) : osamp1;
-
-                if (globalramp) { // "Switch and Ramp" -
-                                  // http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
-                    if (snrfade < 1.0) {
-                        if (snrfade == 0.0) {
-                            o1dif = o1prev - osamp1;
-                            o2dif = o2prev - osamp2;
-                        }
-                        osamp1 += kh_ease_switchramp(
-                            o1dif, snrfade, snrtype); // <- easing-curv options
-                                                      // implemented by raja
-                        osamp2 += kh_ease_switchramp(
-                            o2dif, snrfade, snrtype);
-                        snrfade += 1 / snrramp;
-                    } // "Switch and Ramp" end
-
-                    if (playfade < globalramp) { // realtime ramps for play on/off
-                        osamp1 = kh_ease_record(
-                            osamp1, (playfadeflag > 0), globalramp, playfade);
-                        osamp2 = kh_ease_record(
-                            osamp2, (playfadeflag > 0), globalramp, playfade);
-                        playfade++;
-                        if (playfade >= globalramp) {
-                            kh_process_playfade_state(
-                                &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
-                                &playfade, &snrfade, record);
-                        }
-                    }
-                } else {
-                    kh_process_playfade_state(
-                        &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
-                        &playfade, &snrfade, record);
-                }
+                // Process stereo ramps and fades
+                kh_process_stereo_ramps_and_fades(
+                    &osamp1, &osamp2, &o1prev, &o2prev, &o1dif, &o2dif, &snrfade, &playfade,
+                    globalramp, snrramp, snrtype, &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine, record);
 
             } else {
                 osamp1 = 0.0;
@@ -3250,53 +3399,14 @@ void karma_poly_perform(
                     }
                 }
 
-                playhead = trunc(accuratehead);
-                if (direction > 0) {
-                    frac = accuratehead - playhead;
-                } else if (direction < 0) {
-                    frac = 1.0 - (accuratehead - playhead);
-                } else {
-                    frac = 0.0;
-                }
-                kh_interp_index(
-                    playhead, &interp0, &interp1, &interp2, &interp3, direction,
-                    directionorig, maxloop, frames - 1);
+                // Calculate multichannel interpolation and get all output samples
+                kh_calculate_poly_interpolation_and_osamp(
+                    accuratehead, direction, b, pchans, nchans, interp, directionorig, maxloop, frames, record, osamp);
 
-                for (i = 0; i < nchans; i++) {
-                    long chan_offset = i % pchans;
-                    osamp[i] = kh_perform_playback_interpolation(
-                        frac, b + chan_offset, interp0 * pchans, interp1 * pchans,
-                        interp2 * pchans, interp3 * pchans, pchans, interp, record);
-                }
-
-                if (globalramp) {
-                    if (snrfade < 1.0) {
-                        for (i = 0; i < nchans; i++) {
-                            if (snrfade == 0.0) {
-                                odif[i] = oprev[i] - osamp[i];
-                            }
-                            osamp[i] += kh_ease_switchramp(odif[i], snrfade, snrtype);
-                        }
-                        snrfade += 1 / snrramp;
-                    }
-
-                    if (playfade < globalramp) {
-                        for (i = 0; i < nchans; i++) {
-                            osamp[i] = kh_ease_record(
-                                osamp[i], (playfadeflag > 0), globalramp, playfade);
-                        }
-                        playfade++;
-                        if (playfade >= globalramp) {
-                            kh_process_playfade_state(
-                                &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
-                                &playfade, &snrfade, record);
-                        }
-                    }
-                } else {
-                    kh_process_playfade_state(
-                        &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine,
-                        &playfade, &snrfade, record);
-                }
+                // Process multichannel ramps and fades
+                kh_process_poly_ramps_and_fades(
+                    osamp, oprev, odif, nchans, &snrfade, &playfade, globalramp, snrramp, snrtype,
+                    &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine, record);
             } else {
                 for (i = 0; i < nchans; i++) {
                     osamp[i] = 0.0;
@@ -3627,7 +3737,7 @@ static inline void kh_process_argc_args(
                     gensym("setloop")->s_name, ps_originalloop->s_name,
                     gensym("resetloop")->s_name);
                 // Set flag to indicate early return needed
-                *templow = -999.0; // Special flag value
+                *templow = KARMA_SENTINEL_VALUE; // Special flag value
                 return;
             } else {
                 object_warn(
@@ -3880,9 +3990,9 @@ static inline void kh_process_initial_loop_boundary_constraints(
     setloopsize = x->loop.maxloop
         - x->loop.minloop; // not really required here because initial loop ??
     speedsrscaled = speed * x->timing.srscale;
-    if (x->state.record) // why 1024 ??
-        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024))
-            ? ((setloopsize / 1024) * direction)
+    if (x->state.record) // speed limiting during record
+        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / KARMA_SPEED_LIMIT_DIVISOR))
+            ? ((setloopsize / KARMA_SPEED_LIMIT_DIVISOR) * direction)
             : speedsrscaled;
     *accuratehead = *accuratehead + speedsrscaled;
 
