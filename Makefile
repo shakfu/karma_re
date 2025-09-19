@@ -35,10 +35,10 @@ dev: clean
 		cmake --build . --config Debug
 
 format:
-	@clang-format -i source/projects/karma_tilde/karma\~.c
+	@clang-format -i source/projects/karma_re_tilde/karma_re\~.c
 
 tidy:
-	$(call tidy-target,source/projects/karma_tilde/karma~.c)
+	$(call tidy-target,source/projects/karma_re_tilde/karma_re~.c)
 
 
 complexity:

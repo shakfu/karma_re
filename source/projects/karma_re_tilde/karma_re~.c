@@ -2225,7 +2225,7 @@ void karma_mono_perform(
     recordhead = x->timing.recordhead;
     alternateflag = x->state.alternateflag;
     pchans = x->buffer.bchans;
-    srscale = x->timing.srscale;
+    // srscale = x->timing.srscale;
     frames = x->buffer.bframes;
     triginit = x->state.triginit;
     jumpflag = x->state.jumpflag;
@@ -2236,10 +2236,10 @@ void karma_mono_perform(
     maxloop = x->loop.maxloop;
     initiallow = x->loop.initiallow;
     initialhigh = x->loop.initialhigh;
-    selection = x->timing.selection;
+    // selection = x->timing.selection;
     loopdetermine = x->state.loopdetermine;
     startloop = x->loop.startloop;
-    selstart = x->timing.selstart;
+    // selstart = x->timing.selstart;
     endloop = x->loop.endloop;
     recendmark = x->state.recendmark;
     overdubamp = x->audio.overdubprev;
@@ -2253,7 +2253,7 @@ void karma_mono_perform(
 
     // Access other variables directly from nested structs
     maxhead = x->timing.maxhead;
-    jumphead = x->timing.jumphead;
+    // jumphead = x->timing.jumphead;
     pokesteps = x->audio.pokesteps;
     snrfade = x->fade.snrfade;
     globalramp = (double)x->fade.globalramp;
@@ -2673,7 +2673,7 @@ void karma_stereo_perform(
     recordhead = x->timing.recordhead;
     alternateflag = x->state.alternateflag;
     pchans = x->buffer.bchans;
-    srscale = x->timing.srscale;
+    // srscale = x->timing.srscale;
     frames = x->buffer.bframes;
     triginit = x->state.triginit;
     jumpflag = x->state.jumpflag;
@@ -2684,10 +2684,10 @@ void karma_stereo_perform(
     maxloop = x->loop.maxloop;
     initiallow = x->loop.initiallow;
     initialhigh = x->loop.initialhigh;
-    selection = x->timing.selection;
+    // selection = x->timing.selection;
     loopdetermine = x->state.loopdetermine;
     startloop = x->loop.startloop;
-    selstart = x->timing.selstart;
+    // selstart = x->timing.selstart;
     endloop = x->loop.endloop;
     recendmark = x->state.recendmark;
     overdubamp = x->audio.overdubprev;
@@ -2701,7 +2701,7 @@ void karma_stereo_perform(
 
     // Access other variables directly from nested structs
     maxhead = x->timing.maxhead;
-    jumphead = x->timing.jumphead;
+    // jumphead = x->timing.jumphead;
     pokesteps = x->audio.pokesteps;
     snrfade = x->fade.snrfade;
     globalramp = (double)x->fade.globalramp;
@@ -3151,23 +3151,23 @@ void karma_poly_perform(
     recordhead = x->timing.recordhead;
     alternateflag = x->state.alternateflag;
     pchans = x->buffer.bchans;
-    srscale = x->timing.srscale;
+    // srscale = x->timing.srscale;
     frames = x->buffer.bframes;
     triginit = x->state.triginit;
     jumpflag = x->state.jumpflag;
-    append = x->state.append;
+    // append = x->state.append;
     directionorig = x->state.directionorig;
     direction = x->state.directionprev;
     directionprev = x->state.directionprev;
-    speed = 1.0;
+    // speed = 1.0;
     speedfloat = x->speedfloat;
     loopdetermine = x->state.loopdetermine;
     wrapflag = x->state.wrapflag;
     interp = x->audio.interpflag;
     accuratehead = x->timing.playhead;
     playhead = x->timing.playhead;
-    speedsrscaled = speed * srscale;
-    ovdbdif = 0.0;
+    // speedsrscaled = speed * srscale;
+    // ovdbdif = 0.0;
     overdubamp = x->audio.overdubamp;
     overdubprev = x->audio.overdubprev;
 
@@ -3180,8 +3180,8 @@ void karma_poly_perform(
         odif[i] = 0.0;
     }
 
-    selstart = x->timing.selstart;
-    selection = x->timing.selection;
+    // selstart = x->timing.selstart;
+    // selection = x->timing.selection;
     startloop = x->loop.startloop;
     endloop = x->loop.endloop;
     minloop = x->loop.minloop;
@@ -3193,11 +3193,11 @@ void karma_poly_perform(
     snrramp = x->fade.snrramp;
     snrfade = x->fade.snrfade;
     snrtype = x->fade.snrtype;
-    initiallow = x->loop.initiallow;
-    initialhigh = x->loop.initialhigh;
+    // initiallow = x->loop.initiallow;
+    // initialhigh = x->loop.initialhigh;
     maxhead = x->timing.maxhead;
-    jumphead = x->timing.jumphead;
-    recplaydif = 0.0;
+    // jumphead = x->timing.jumphead;
+    // recplaydif = 0.0;
     pokesteps = x->audio.pokesteps;
 
     // Process state control using helper function
@@ -3218,7 +3218,7 @@ void karma_poly_perform(
         }
 
         kh_process_record_toggle(x, b, accuratehead, direction, speed, &dirt);
-        recordprev = record;
+        // recordprev = record;
 
         if (!loopdetermine) {
             if (go) {
