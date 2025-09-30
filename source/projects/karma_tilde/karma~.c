@@ -231,6 +231,10 @@ static inline void kh_apply_ipoke_interpolation(
     float *b, long pchans, long start_idx, long end_idx,
     double *writeval1, double coeff1, char direction);
 
+static inline void kh_apply_ipoke_interpolation_stereo(
+    float *b, long pchans, long start_idx, long end_idx,
+    double *writeval1, double *writeval2, double coeff1, double coeff2, char direction);
+
 static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf);
 
 static inline void kh_process_recording_cleanup(
@@ -258,8 +262,11 @@ static inline double kh_perform_playback_interpolation(
     interp_type_t interp, t_bool record);
 
 static inline void kh_process_playfade_state(
-    char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag, 
+    char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag,
     t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record);
+
+static inline void kh_process_playfade_completion(
+    char *playfadeflag, char *recendmark, t_bool *go, long *playfade);
 
 static inline void kh_process_loop_initialization(
     t_karma *x, float *b, double *accuratehead, char direction,
@@ -539,10 +546,10 @@ static inline void kh_calculate_sync_output(
     }
 }
 
-// Helper function to apply iPoke interpolation over a range
+// Helper function to apply iPoke interpolation over a range (mono)
 static inline void kh_apply_ipoke_interpolation(
     float *b, long pchans, long start_idx, long end_idx,
-    double *writeval1, double coeff1, char direction) 
+    double *writeval1, double coeff1, char direction)
 {
     if (direction > 0) {
         for (long i = start_idx; i < end_idx; i++) {
@@ -553,6 +560,32 @@ static inline void kh_apply_ipoke_interpolation(
         for (long i = start_idx; i > end_idx; i--) {
             *writeval1 -= coeff1;
             b[i * pchans] = *writeval1;
+        }
+    }
+}
+
+// Helper function to apply iPoke interpolation over a range (stereo)
+static inline void kh_apply_ipoke_interpolation_stereo(
+    float *b, long pchans, long start_idx, long end_idx,
+    double *writeval1, double *writeval2, double coeff1, double coeff2, char direction)
+{
+    if (direction > 0) {
+        for (long i = start_idx; i < end_idx; i++) {
+            *writeval1 += coeff1;
+            *writeval2 += coeff2;
+            b[i * pchans] = *writeval1;
+            if (pchans > 1) {
+                b[i * pchans + 1] = *writeval2;
+            }
+        }
+    } else {
+        for (long i = start_idx; i > end_idx; i--) {
+            *writeval1 -= coeff1;
+            *writeval2 -= coeff2;
+            b[i * pchans] = *writeval1;
+            if (pchans > 1) {
+                b[i * pchans + 1] = *writeval2;
+            }
         }
     }
 }
@@ -728,6 +761,34 @@ static inline void kh_process_playfade_state(
             *playfade = 0;
             *playfadeflag = 0;
             break;
+    }
+}
+
+// Helper function to handle playfade completion with recendmark state handling
+static inline void kh_process_playfade_completion(
+    char *playfadeflag, char *recendmark, t_bool *go, long *playfade)
+{
+    if (*playfadeflag == 2) {
+        *recendmark = 4;
+        *go = 1;
+    }
+    *playfadeflag = 0;
+
+    switch (*recendmark) {
+    case 0:
+        /* fallthrough */
+    case 1:
+        *go = 0;
+        break;
+    case 2:
+        /* fallthrough */
+    case 3:
+        *go = 1;
+        *playfade = 0;
+        break;
+    case 4:
+        *recendmark = 0;
+        break;
     }
 }
 
@@ -2708,57 +2769,17 @@ void karma_mono_perform(
                 playhead = trunc(accuratehead);
 
                 if (globalramp) {
-                    if (playfade < globalramp) // realtime ramps for play on/off
-                    {
+                    if (playfade < globalramp) { // realtime ramps for play on/off
                         playfade++;
-                        if (playfadeflag) {
-                            if (playfade >= globalramp) {
-                                if (playfadeflag == 2) {
-                                    recendmark = 4;
-                                    go = 1;
-                                }
-                                playfadeflag = 0;
-                                switch (recendmark) {
-                                case 0:
-                                    /* fallthrough */
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                    /* fallthrough */
-                                case 3:
-                                    go = 1;
-                                    playfade = 0;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                                }
-                            }
+                        if (playfadeflag && (playfade >= globalramp)) {
+                            kh_process_playfade_completion(
+                                &playfadeflag, &recendmark, &go, &playfade);
                         }
                     }
                 } else {
                     if (playfadeflag) {
-                        if (playfadeflag == 2) {
-                            recendmark = 4;
-                            go = 1;
-                        }
-                        playfadeflag = 0;
-                        switch (recendmark) {
-                        case 0:
-                            /* fallthrough */
-                        case 1:
-                            go = 0;
-                            break;
-                        case 2:
-                            /* fallthrough */
-                        case 3:
-                            go = 1;
-                            break;
-                        case 4:
-                            recendmark = 0;
-                            break;
-                        }
+                        kh_process_playfade_completion(
+                            &playfadeflag, &recendmark, &go, &playfade);
                     }
                 }
             }
@@ -3132,57 +3153,17 @@ void karma_stereo_perform(
                 playhead = trunc(accuratehead);
 
                 if (globalramp) {
-                    if (playfade < globalramp) // realtime ramps for play on/off
-                    {
+                    if (playfade < globalramp) { // realtime ramps for play on/off
                         playfade++;
-                        if (playfadeflag) {
-                            if (playfade >= globalramp) {
-                                if (playfadeflag == 2) {
-                                    recendmark = 4;
-                                    go = 1;
-                                }
-                                playfadeflag = 0;
-                                switch (recendmark) {
-                                case 0:
-                                    /* fallthrough */
-                                case 1:
-                                    go = 0;
-                                    break;
-                                case 2:
-                                    /* fallthrough */
-                                case 3:
-                                    go = 1;
-                                    playfade = 0;
-                                    break;
-                                case 4:
-                                    recendmark = 0;
-                                    break;
-                                }
-                            }
+                        if (playfadeflag && (playfade >= globalramp)) {
+                            kh_process_playfade_completion(
+                                &playfadeflag, &recendmark, &go, &playfade);
                         }
                     }
                 } else {
                     if (playfadeflag) {
-                        if (playfadeflag == 2) {
-                            recendmark = 4;
-                            go = 1;
-                        }
-                        playfadeflag = 0;
-                        switch (recendmark) {
-                        case 0:
-                            /* fallthrough */
-                        case 1:
-                            go = 0;
-                            break;
-                        case 2:
-                            /* fallthrough */
-                        case 3:
-                            go = 1;
-                            break;
-                        case 4:
-                            recendmark = 0;
-                            break;
-                        }
+                        kh_process_playfade_completion(
+                            &playfadeflag, &recendmark, &go, &playfade);
                     }
                 }
             }
@@ -4009,95 +3990,81 @@ static inline void kh_process_initial_loop_ipoke_recording(
 
         if (direction != directionorig) {
             if (directionorig >= 0) {
+                // Forward original direction: wraps between 0 and maxhead
                 if (recplaydif > 0) {
                     if (recplaydif > (maxhead * 0.5)) {
+                        // Wraparound case: backward through 0, then forward from maxhead
                         recplaydif -= maxhead;
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i >= 0; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead - 1, -1, writeval1, coeff1, -1);
                         kh_apply_ipoke_interpolation(
                             b, pchans, maxhead, playhead, writeval1, coeff1, -1);
                     } else {
+                        // Regular forward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead + 1, playhead, writeval1, coeff1, 1);
                     }
                 } else {
                     if ((-recplaydif) > (maxhead * 0.5)) {
+                        // Wraparound case: forward to maxhead+1, then forward from 0
                         recplaydif += maxhead;
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < (maxhead + 1); i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                        for (i = 0; i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead + 1, maxhead + 1, writeval1, coeff1, 1);
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, 0, playhead, writeval1, coeff1, 1);
                     } else {
+                        // Regular backward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead - 1, playhead, writeval1, coeff1, -1);
                     }
                 }
             } else {
+                // Reverse original direction: wraps between maxhead and frames-1
                 if (recplaydif > 0) {
-                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5)) {
-                        recplaydif -= ((frames - 1) - (maxhead));
+                    if (recplaydif > (((frames - 1) - maxhead) * 0.5)) {
+                        // Wraparound case: backward to maxhead, then backward from frames-1
+                        recplaydif -= ((frames - 1) - maxhead);
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i >= maxhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                        for (i = (frames - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead - 1, maxhead - 1, writeval1, coeff1, -1);
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, frames - 1, playhead, writeval1, coeff1, -1);
                     } else {
+                        // Regular forward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead + 1, playhead, writeval1, coeff1, 1);
                     }
                 } else {
-                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5)) {
-                        recplaydif += ((frames - 1) - (maxhead));
+                    if ((-recplaydif) > (((frames - 1) - maxhead) * 0.5)) {
+                        // Wraparound case: forward to frames, then forward from maxhead
+                        recplaydif += ((frames - 1) - maxhead);
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < frames; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead + 1, frames, writeval1, coeff1, 1);
                         kh_apply_ipoke_interpolation(
                             b, pchans, maxhead, playhead, writeval1, coeff1, 1);
                     } else {
+                        // Regular backward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
+                        kh_apply_ipoke_interpolation(
+                            b, pchans, *recordhead - 1, playhead, writeval1, coeff1, -1);
                     }
                 }
             }
         } else {
+            // Same direction: simple interpolation
+            coeff1 = (recin1 - *writeval1) / recplaydif;
             if (recplaydif > 0) {
-                coeff1 = (recin1 - *writeval1) / recplaydif;
-                for (i = (*recordhead + 1); i < playhead; i++) {
-                    *writeval1 += coeff1;
-                    b[i * pchans] = *writeval1;
-                }
+                kh_apply_ipoke_interpolation(
+                    b, pchans, *recordhead + 1, playhead, writeval1, coeff1, 1);
             } else {
-                coeff1 = (recin1 - *writeval1) / recplaydif;
-                for (i = (*recordhead - 1); i > playhead; i--) {
-                    *writeval1 -= coeff1;
-                    b[i * pchans] = *writeval1;
-                }
+                kh_apply_ipoke_interpolation(
+                    b, pchans, *recordhead - 1, playhead, writeval1, coeff1, -1);
             }
         }
         *writeval1 = recin1;
@@ -4347,165 +4314,90 @@ static inline void kh_process_initial_loop_ipoke_recording_stereo(
 
         if (direction != directionorig) {
             if (directionorig >= 0) {
+                // Forward original direction: wraps between 0 and maxhead
                 if (recplaydif > 0) {
                     if (recplaydif > (maxhead * 0.5)) {
+                        // Wraparound case: backward through 0, then backward from maxhead
                         recplaydif -= maxhead;
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead - 1); i >= 0; i--) {
-                            *writeval1 -= coeff1;
-                            *writeval2 -= coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
-                        for (i = maxhead; i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            *writeval2 -= coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead - 1, -1, writeval1, writeval2, coeff1, coeff2, -1);
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, maxhead, playhead, writeval1, writeval2, coeff1, coeff2, -1);
                     } else {
+                        // Regular forward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead + 1); i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            *writeval2 += coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead + 1, playhead, writeval1, writeval2, coeff1, coeff2, 1);
                     }
                 } else {
                     if ((-recplaydif) > (maxhead * 0.5)) {
+                        // Wraparound case: forward to maxhead+1, then forward from 0
                         recplaydif += maxhead;
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead + 1); i < (maxhead + 1); i++) {
-                            *writeval1 += coeff1;
-                            *writeval2 += coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
-                        for (i = 0; i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            *writeval2 += coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead + 1, maxhead + 1, writeval1, writeval2, coeff1, coeff2, 1);
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, 0, playhead, writeval1, writeval2, coeff1, coeff2, 1);
                     } else {
+                        // Regular backward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            *writeval2 -= coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead - 1, playhead, writeval1, writeval2, coeff1, coeff2, -1);
                     }
                 }
             } else {
+                // Reverse original direction: wraps between maxhead and frames-1
                 if (recplaydif > 0) {
-                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5)) {
-                        recplaydif -= ((frames - 1) - (maxhead));
+                    if (recplaydif > (((frames - 1) - maxhead) * 0.5)) {
+                        // Wraparound case: backward to maxhead, then backward from frames-1
+                        recplaydif -= ((frames - 1) - maxhead);
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead - 1); i >= maxhead; i--) {
-                            *writeval1 -= coeff1;
-                            *writeval2 -= coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
-                        for (i = (frames - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            *writeval2 -= coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead - 1, maxhead - 1, writeval1, writeval2, coeff1, coeff2, -1);
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, frames - 1, playhead, writeval1, writeval2, coeff1, coeff2, -1);
                     } else {
+                        // Regular forward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead + 1); i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            *writeval2 += coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead + 1, playhead, writeval1, writeval2, coeff1, coeff2, 1);
                     }
                 } else {
-                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5)) {
-                        recplaydif += ((frames - 1) - (maxhead));
+                    if ((-recplaydif) > (((frames - 1) - maxhead) * 0.5)) {
+                        // Wraparound case: forward to frames, then forward from maxhead
+                        recplaydif += ((frames - 1) - maxhead);
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead + 1); i < frames; i++) {
-                            *writeval1 += coeff1;
-                            *writeval2 += coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
-                        for (i = maxhead; i > playhead; i--) {
-                            *writeval1 += coeff1;
-                            *writeval2 += coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead + 1, frames, writeval1, writeval2, coeff1, coeff2, 1);
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, maxhead, playhead, writeval1, writeval2, coeff1, coeff2, 1);
                     } else {
+                        // Regular backward case
                         coeff1 = (recin1 - *writeval1) / recplaydif;
                         coeff2 = (recin2 - *writeval2) / recplaydif;
-                        for (i = (*recordhead - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            *writeval2 -= coeff2;
-                            b[i * pchans] = *writeval1;
-                            if (pchans > 1) {
-                                b[i * pchans + 1] = *writeval2;
-                            }
-                        }
+                        kh_apply_ipoke_interpolation_stereo(
+                            b, pchans, *recordhead - 1, playhead, writeval1, writeval2, coeff1, coeff2, -1);
                     }
                 }
             }
         } else {
-            if (recplaydif > 0) { // linear-interpolation for speed > 1x
-                coeff1 = (recin1 - *writeval1) / recplaydif;
-                coeff2 = (recin2 - *writeval2) / recplaydif;
-                for (i = *recordhead + 1; i < playhead; i++) {
-                    *writeval1 += coeff1;
-                    *writeval2 += coeff2;
-                    b[i * pchans] = *writeval1;
-                    if (pchans > 1) {
-                        b[i * pchans + 1] = *writeval2;
-                    }
-                }
+            // Same direction: simple interpolation
+            coeff1 = (recin1 - *writeval1) / recplaydif;
+            coeff2 = (recin2 - *writeval2) / recplaydif;
+            if (recplaydif > 0) {
+                kh_apply_ipoke_interpolation_stereo(
+                    b, pchans, *recordhead + 1, playhead, writeval1, writeval2, coeff1, coeff2, 1);
             } else {
-                coeff1 = (recin1 - *writeval1) / recplaydif;
-                coeff2 = (recin2 - *writeval2) / recplaydif;
-                for (i = *recordhead - 1; i > playhead; i--) {
-                    *writeval1 -= coeff1;
-                    *writeval2 -= coeff2;
-                    b[i * pchans] = *writeval1;
-                    if (pchans > 1) {
-                        b[i * pchans + 1] = *writeval2;
-                    }
-                }
+                kh_apply_ipoke_interpolation_stereo(
+                    b, pchans, *recordhead - 1, playhead, writeval1, writeval2, coeff1, coeff2, -1);
             }
         }
         *writeval1 = recin1;
