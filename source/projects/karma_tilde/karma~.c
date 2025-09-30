@@ -513,6 +513,8 @@ static inline void kh_process_recording_fade_completion(
             } else {
                 *maxloop = maxhead;
             }
+            // TODO: shouldn't a break be here?
+            // break;
         case 2:
             *record = *loopdetermine = 0;
             *triginit = 1;
