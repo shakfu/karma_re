@@ -91,18 +91,18 @@ typedef enum {
  * - Computational cost: ~4x linear (4-point interpolation)
  * - Frequency response: Improved high-frequency preservation
  * - Best for: Musical applications, noticeable speed changes
- * - Status: Currently falls back to nearest neighbor (placeholder)
+ * - Implementation: 4-point cubic interpolation
  *
  * INTERP_SPLINE: Highest quality, highest cost
  * - Computational cost: Significantly higher than cubic
  * - Frequency response: Best preservation across spectrum
  * - Best for: Critical listening, large speed variations
- * - Status: Not yet implemented
+ * - Implementation: Catmull-Rom spline interpolation
  */
 typedef enum {
-    INTERP_LINEAR = 0, // Linear interpolation (implemented, default)
-    INTERP_CUBIC = 1,  // Cubic interpolation (placeholder implementation)
-    INTERP_SPLINE = 2  // Spline interpolation (not implemented)
+    INTERP_LINEAR = 0, // Linear interpolation (2-point, default)
+    INTERP_CUBIC = 1,  // Cubic interpolation (4-point)
+    INTERP_SPLINE = 2  // Catmull-Rom spline interpolation (4-point)
 } interp_type_t;
 
 typedef struct t_karma t_karma;

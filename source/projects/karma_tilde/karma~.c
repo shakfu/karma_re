@@ -513,8 +513,7 @@ static inline void kh_process_recording_fade_completion(
             } else {
                 *maxloop = maxhead;
             }
-            // TODO: shouldn't a break be here?
-            // break;
+            break;
         case 2:
             *record = *loopdetermine = 0;
             *triginit = 1;
@@ -4209,14 +4208,34 @@ static inline double kh_process_audio_interpolation(
     if (!record) { // if recording do linear-interp else...
         switch (interp) {
         case INTERP_CUBIC:
-            // TODO: Implement proper 4-point cubic interpolation
-            // Currently falls back to nearest neighbor for performance
-            output = (double)b[playhead * pchans];
+            // 4-point cubic interpolation
+            // Note: Assumes buffer has sufficient samples before/after playhead
+            if (frac > 0.0) {
+                output = kh_cubic_interp(
+                    frac,
+                    (double)b[(playhead - 1) * pchans], // w
+                    (double)b[playhead * pchans],       // x
+                    (double)b[(playhead + 1) * pchans], // y
+                    (double)b[(playhead + 2) * pchans]  // z
+                );
+            } else {
+                output = (double)b[playhead * pchans];
+            }
             break;
         case INTERP_SPLINE:
-            // TODO: Implement spline interpolation
-            // Currently falls back to nearest neighbor
-            output = (double)b[playhead * pchans];
+            // Catmull-Rom spline interpolation
+            // Note: Assumes buffer has sufficient samples before/after playhead
+            if (frac > 0.0) {
+                output = kh_spline_interp(
+                    frac,
+                    (double)b[(playhead - 1) * pchans], // w
+                    (double)b[playhead * pchans],       // x
+                    (double)b[(playhead + 1) * pchans], // y
+                    (double)b[(playhead + 2) * pchans]  // z
+                );
+            } else {
+                output = (double)b[playhead * pchans];
+            }
             break;
         default: // INTERP_LINEAR
             if (frac > 0.0) {
