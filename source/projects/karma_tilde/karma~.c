@@ -171,13 +171,8 @@ struct t_karma {
     // long    boffset;         // Would allow starting from specific buffer channel (default 0)
     //                          // Decision: Not implemented - current multichannel design sufficient
 
-    long    moduloout;          // RESERVED: Modulo playback channel outputs
-                                // Would cycle through available output channels
-                                // Decision: Not implemented - conflicts with MC signal routing
-
-    long    islooped;           // Global looping enable/disable flag
-                                // 0 = looping disabled, 1 = looping enabled (default)
-                                // Note: Currently not implemented - would require extensive state machine changes
+    // REMOVED: moduloout - RESERVED feature never implemented, conflicts with MC signal routing
+    // REMOVED: islooped - Never implemented, would require extensive state machine changes
 
     long   recordhead;          // record head position in samples
     long   reportlist;          // right list outlet report granularity in ms (!! why is this a long ??)
@@ -1223,7 +1218,6 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->audio.overdubprev = 1.0;
         x->audio.overdubamp = 1.0;
         x->speedfloat = 1.0;
-        x->islooped = 1;
 
         x->fade.snrtype = SWITCHRAMP_SINE_IN;
         x->audio.interpflag = INTERP_CUBIC;
@@ -2726,10 +2720,12 @@ void karma_mono_perform(
                                 playfadeflag = 0;
                                 switch (recendmark) {
                                 case 0:
+                                    /* fallthrough */
                                 case 1:
                                     go = 0;
                                     break;
                                 case 2:
+                                    /* fallthrough */
                                 case 3:
                                     go = 1;
                                     playfade = 0;
@@ -2750,10 +2746,12 @@ void karma_mono_perform(
                         playfadeflag = 0;
                         switch (recendmark) {
                         case 0:
+                            /* fallthrough */
                         case 1:
                             go = 0;
                             break;
                         case 2:
+                            /* fallthrough */
                         case 3:
                             go = 1;
                             break;
@@ -3146,10 +3144,12 @@ void karma_stereo_perform(
                                 playfadeflag = 0;
                                 switch (recendmark) {
                                 case 0:
+                                    /* fallthrough */
                                 case 1:
                                     go = 0;
                                     break;
                                 case 2:
+                                    /* fallthrough */
                                 case 3:
                                     go = 1;
                                     playfade = 0;
@@ -3170,10 +3170,12 @@ void karma_stereo_perform(
                         playfadeflag = 0;
                         switch (recendmark) {
                         case 0:
+                            /* fallthrough */
                         case 1:
                             go = 0;
                             break;
                         case 2:
+                            /* fallthrough */
                         case 3:
                             go = 1;
                             break;
