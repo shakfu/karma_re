@@ -4,7 +4,6 @@
 2. **Private functions** that should have `kh_` prefix and NOT be in the header
 3. **General naming improvements** based on best practices
 
-
 ## Private Functions
 
 ```c

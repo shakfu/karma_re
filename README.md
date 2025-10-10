@@ -126,7 +126,9 @@ Results:
 Major complexity reduction achieved:
 
 - `karma_mono_perform`: Reduced from 3397 complexity to 352 complexity (~90%
+
  reduction!)
+
 - Nesting depth: Reduced from 11 to 9 (significant improvement)
 - Lines of code: Function is now much more readable with clear helper
 function calls
