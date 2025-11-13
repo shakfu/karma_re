@@ -326,9 +326,6 @@ static inline void kh_process_initial_loop_ipoke_recording(
 static inline void kh_process_initial_loop_boundary_constraints(
     t_karma *x, float *b, double *accuratehead, double speed, char direction);
 
-static inline double kh_process_audio_interpolation(
-    float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record);
-
 static inline double kh_calculate_interpolation_fraction_and_osamp(
     double accuratehead, char direction, float* b, long pchans, interp_type_t interp,
     char directionorig, long maxloop, long frames, t_bool record);
@@ -1205,10 +1202,42 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
             object_warn((t_object*)x, "Requested %ld channels, but maximum configured is %d. Using %d channels.",
                        requested_chans, KARMA_ABSOLUTE_CHANNEL_LIMIT, KARMA_ABSOLUTE_CHANNEL_LIMIT);
         }
+
+        // Allocate multichannel processing arrays with error handling
         x->poly_osamp = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        if (!x->poly_osamp) {
+            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
+            object_free((t_object*)x);
+            return NULL;
+        }
+
         x->poly_oprev = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        if (!x->poly_oprev) {
+            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
+            sysmem_freeptr(x->poly_osamp);
+            object_free((t_object*)x);
+            return NULL;
+        }
+
         x->poly_odif = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        if (!x->poly_odif) {
+            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
+            sysmem_freeptr(x->poly_osamp);
+            sysmem_freeptr(x->poly_oprev);
+            object_free((t_object*)x);
+            return NULL;
+        }
+
         x->poly_recin = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
+        if (!x->poly_recin) {
+            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
+            sysmem_freeptr(x->poly_osamp);
+            sysmem_freeptr(x->poly_oprev);
+            sysmem_freeptr(x->poly_odif);
+            object_free((t_object*)x);
+            return NULL;
+        }
+
         x->input_channels = chans;  // Initialize input channel count
 
         x->timing.recordhead = -1;
@@ -1279,7 +1308,28 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         // recording and four outputs for playback <br />
 
         x->messout = listout(x); // data
+        if (!x->messout) {
+            object_error((t_object*)x, "Failed to create list outlet");
+            sysmem_freeptr(x->poly_osamp);
+            sysmem_freeptr(x->poly_oprev);
+            sysmem_freeptr(x->poly_odif);
+            sysmem_freeptr(x->poly_recin);
+            object_free((t_object*)x);
+            return NULL;
+        }
+
         x->tclock = clock_new((t_object*)x, (method)karma_clock_list);
+        if (!x->tclock) {
+            object_error((t_object*)x, "Failed to create clock");
+            object_free(x->messout);
+            sysmem_freeptr(x->poly_osamp);
+            sysmem_freeptr(x->poly_oprev);
+            sysmem_freeptr(x->poly_odif);
+            sysmem_freeptr(x->poly_recin);
+            object_free((t_object*)x);
+            return NULL;
+        }
+
         attr_args_process(x, argc, argv);
         syncoutlet = x->syncoutlet; // pre-init
 
@@ -4182,54 +4232,6 @@ static inline void kh_process_initial_loop_boundary_constraints(
             }
         }
     }
-}
-
-/**
- * @brief Process audio interpolation for smooth playback at variable speeds
- *
- * Handles interpolation between buffer samples when playhead position is not
- * aligned to sample boundaries. Critical for artifact-free variable speed playback.
- *
- * @param b           Buffer data array
- * @param pchans      Number of channels in buffer
- * @param accuratehead Precise playhead position (fractional samples)
- * @param interp      Interpolation method (LINEAR/CUBIC/SPLINE)
- * @param record      Recording mode flag (uses linear when recording)
- * @return           Interpolated sample value
- */
-static inline double kh_process_audio_interpolation(
-    float* b, long pchans, double accuratehead, interp_type_t interp, t_bool record)
-{
-    long   playhead = (long)accuratehead;
-    double frac = accuratehead - playhead;
-    double output = 0.0;
-
-    if (!record) { // if recording do linear-interp else...
-        switch (interp) {
-        case INTERP_CUBIC:
-            // TODO: Implement proper 4-point cubic interpolation
-            // Currently falls back to nearest neighbor for performance
-            output = (double)b[playhead * pchans];
-            break;
-        case INTERP_SPLINE:
-            // TODO: Implement spline interpolation
-            // Currently falls back to nearest neighbor
-            output = (double)b[playhead * pchans];
-            break;
-        default: // INTERP_LINEAR
-            if (frac > 0.0) {
-                output = ((double)b[playhead * pchans] * (1.0 - frac))
-                    + ((double)b[(playhead + 1) * pchans] * frac);
-            } else {
-                output = (double)b[playhead * pchans];
-            }
-            break;
-        }
-    } else {
-        output = (double)b[playhead * pchans];
-    }
-
-    return output;
 }
 
 // ============================== Stereo Helper Functions
