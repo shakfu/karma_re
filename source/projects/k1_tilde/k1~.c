@@ -1074,7 +1074,7 @@ static inline void kh_process_poly_ramps_and_fades(
 
 void ext_main(void *r)
 {
-    t_class *c = class_new("karma_re~", (method)karma_new, (method)karma_free, (long)sizeof(t_karma), 0L, A_GIMME, 0);
+    t_class *c = class_new("k1~", (method)karma_new, (method)karma_free, (long)sizeof(t_karma), 0L, A_GIMME, 0);
 
     class_addmethod(c, (method)karma_select_start,  "position", A_FLOAT,    0);
     class_addmethod(c, (method)karma_select_size,   "window",   A_FLOAT,    0);

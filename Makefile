@@ -16,6 +16,16 @@ define tidy-target
 endef
 
 
+define render-cflow
+	@uv run cflow2dot -i $(1) -f pdf -o $(CFLOW)/$(subst ~,,$(basename $(notdir $(1))))- > /dev/null && echo .
+	@uv run cflow2dot -i $(1) -f svg -o $(CFLOW)/$(subst ~,,$(basename $(notdir $(1))))- > /dev/null
+	@rm -f $(CFLOW)/*.dot
+	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i $(1) -f pdf -o $(CFLOW)/$(subst ~,,$(basename $(notdir $(1))))-filter > /dev/null
+	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i $(1) -f svg -o $(CFLOW)/$(subst ~,,$(basename $(notdir $(1))))-filter > /dev/null
+	@rm -f $(CFLOW)/*.dot
+endef
+
+
 .phony: all build dev format tidy complexity complexity-re link clean
 
 all: build
@@ -68,21 +78,10 @@ cpd:
 	@pmd cpd --minimum-tokens 50 --language cpp source/projects/karma_tilde/karma\~.c
 
 cflow:
-	@uv run cflow2dot -i source/projects/karma_tilde/karma\~.c -f pdf -o $(CFLOW)/karma_cflow
-	@uv run cflow2dot -i source/projects/karma_tilde/karma\~.c -f svg -o $(CFLOW)/karma_cflow
-	@rm -f $(CFLOW)/*.dot
-
-	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i source/projects/karma_tilde/karma\~.c -f pdf -o $(CFLOW)/karma_cflow_filter
-	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i source/projects/karma_tilde/karma\~.c -f svg -o $(CFLOW)/karma_cflow_filter
-	@rm -f $(CFLOW)/*.dot
-
-	@uv run cflow2dot -i source/projects/karma_re_tilde/karma_re\~.c -f pdf -o $(CFLOW)/karma_re_cflow
-	@uv run cflow2dot -i source/projects/karma_re_tilde/karma_re\~.c -f svg -o $(CFLOW)/karma_re_cflow
-	@rm -f $(CFLOW)/*.dot
-
-	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i source/projects/karma_re_tilde/karma_re\~.c -f pdf -o $(CFLOW)/karma_re_cflow_filter
-	@uv run cflow2dot -x $(CFLOW)/ignore.txt -i source/projects/karma_re_tilde/karma_re\~.c -f svg -o $(CFLOW)/karma_re_cflow_filter
-	@rm -f $(CFLOW)/*.dot
+	@$(call render-cflow,source/projects/karma_tilde/karma\~.c)
+	@$(call render-cflow,source/projects/k1_tilde/k1\~.c) 
+	@$(call render-cflow,source/projects/k2_tilde/k2\~.c)
+	@$(call render-cflow,source/projects/k3_tilde/k3\~.c)
 
 clean:
 	@rm -rf build externals

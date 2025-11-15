@@ -40,7 +40,7 @@
 		"showrootpatcherontab" : 0,
 		"showontab" : 0,
 		"assistshowspatchername" : 0,
-		"title" : "karma_re~",
+		"title" : "k1~",
 		"boxes" : [ 			{
 				"box" : 				{
 					"fontname" : "Arial",
@@ -99,7 +99,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -1524,7 +1524,7 @@
 									"numoutlets" : 3,
 									"outlettype" : [ "signal", "signal", "list" ],
 									"patching_rect" : [ 106.604004000000003, 360.398864399999979, 156.0, 22.0 ],
-									"text" : "karma_re~ declick @syncout 1"
+									"text" : "k1~ declick @syncout 1"
 								}
 
 							}
@@ -1898,7 +1898,7 @@
 						"parameter_enable" : 0
 					}
 ,
-					"text" : "js helpstarter.js karma_re~"
+					"text" : "js helpstarter.js k1~"
 				}
 
 			}
@@ -2935,7 +2935,7 @@
 									"numoutlets" : 3,
 									"outlettype" : [ "signal", "signal", "list" ],
 									"patching_rect" : [ 99.726166000000006, 419.005248999999992, 208.662566999999996, 22.0 ],
-									"text" : "karma_re~ syncout @syncout 1"
+									"text" : "k1~ syncout @syncout 1"
 								}
 
 							}
@@ -2949,7 +2949,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 71.0, 488.0, 79.0 ],
-									"text" : "karma_re~ has a special attribute that is available only as a typed in argument at instantiation time: \"@syncout\".\n\nThe sync outlet produces a phasor~like signal over the period of the play phase. You can use it to sample accurately sync other MSP processes, for example",
+									"text" : "k1~ has a special attribute that is available only as a typed in argument at instantiation time: \"@syncout\".\n\nThe sync outlet produces a phasor~like signal over the period of the play phase. You can use it to sample accurately sync other MSP processes, for example",
 									"textcolor" : [ 0.426676, 0.426663, 0.42667, 1.0 ]
 								}
 
@@ -2963,7 +2963,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -4380,7 +4380,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 99.726166000000006, 494.005248999999992, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ append"
+									"text" : "k1~ append"
 								}
 
 							}
@@ -4408,7 +4408,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -4924,7 +4924,7 @@
 									"filename" : "helpargs.js",
 									"id" : "obj-15",
 									"ignoreclick" : 1,
-									"jsarguments" : [ "karma_re~" ],
+									"jsarguments" : [ "k1~" ],
 									"maxclass" : "jsui",
 									"numinlets" : 1,
 									"numoutlets" : 1,
@@ -5138,7 +5138,7 @@
 									"numoutlets" : 3,
 									"outlettype" : [ "multichannelsignal", "", "" ],
 									"patching_rect" : [ 552.974365000000034, 237.131836000000021, 200.0, 22.0 ],
-									"text" : "mc.karma_re~ channels_tab @chans 4"
+									"text" : "mc.k1~ channels_tab @chans 4"
 								}
 
 							}
@@ -5151,7 +5151,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 552.974365000000034, 6.0, 239.0, 64.0 ],
-									"text" : "mc.karma_re~"
+									"text" : "mc.k1~"
 								}
 
 							}
@@ -5176,7 +5176,7 @@
 									"numoutlets" : 5,
 									"outlettype" : [ "signal", "signal", "signal", "signal", "list" ],
 									"patching_rect" : [ 838.262878499999943, 574.999919000000091, 147.25183100000001, 22.0 ],
-									"text" : "karma_re~ channels_tab 4"
+									"text" : "k1~ channels_tab 4"
 								}
 
 							}
@@ -5275,7 +5275,7 @@
 									"numoutlets" : 3,
 									"outlettype" : [ "signal", "signal", "list" ],
 									"patching_rect" : [ 632.848449500000015, 539.882685300302683, 147.25183100000001, 22.0 ],
-									"text" : "karma_re~ channels_tab 2"
+									"text" : "k1~ channels_tab 2"
 								}
 
 							}
@@ -5340,7 +5340,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 46.726165999999999, 624.0, 243.0, 36.0 ],
-									"text" : "All karma_re~s play the samples stored in 2-channel buffer~  \"channels_tab\"",
+									"text" : "All k1~s play the samples stored in 2-channel buffer~  \"channels_tab\"",
 									"textcolor" : [ 0.501961, 0.501961, 0.501961, 1.0 ]
 								}
 
@@ -5369,7 +5369,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 46.726165999999999, 375.005248999999992, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ channels_tab"
+									"text" : "k1~ channels_tab"
 								}
 
 							}
@@ -5426,7 +5426,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 71.0, 508.0, 137.0 ],
-									"text" : "By default karma_re~ has one audio inlet/outlet, one (optional) speed inlet, and one list outlet. Setting a channel argument (up to 4) will create additional audio inlets/outlets.\n\nIf a stereo buffer is loaded into a mono object, only the left channel is used. If a mono buffer is loaded into a stereo object, audio only comes out of the left channel. This is extrapolated out to four channels as well.\n\nYou can change the buffer that karma_re~ addresses dynamically with the set message, including changing buffers while the object is playing back audio.",
+									"text" : "By default k1~ has one audio inlet/outlet, one (optional) speed inlet, and one list outlet. Setting a channel argument (up to 4) will create additional audio inlets/outlets.\n\nIf a stereo buffer is loaded into a mono object, only the left channel is used. If a mono buffer is loaded into a stereo object, audio only comes out of the left channel. This is extrapolated out to four channels as well.\n\nYou can change the buffer that k1~ addresses dynamically with the set message, including changing buffers while the object is playing back audio.",
 									"textcolor" : [ 0.426676, 0.426663, 0.42667, 1.0 ]
 								}
 
@@ -5440,7 +5440,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -7279,7 +7279,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 45.726165999999999, 477.005248999999992, 157.251891999999998, 22.0 ],
-									"text" : "karma_re~ position"
+									"text" : "k1~ position"
 								}
 
 							}
@@ -7307,7 +7307,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -8759,7 +8759,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 46.726165999999999, 377.005248999999992, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ transport"
+									"text" : "k1~ transport"
 								}
 
 							}
@@ -8787,7 +8787,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -10196,7 +10196,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 86.726166000000006, 421.005248999999992, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ varispeed"
+									"text" : "k1~ varispeed"
 								}
 
 							}
@@ -11112,7 +11112,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -13152,7 +13152,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 46.726165999999999, 479.505248999999992, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ jumping"
+									"text" : "k1~ jumping"
 								}
 
 							}
@@ -13180,7 +13180,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -14708,7 +14708,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 99.726166000000006, 464.005248999999992, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ overdub"
+									"text" : "k1~ overdub"
 								}
 
 							}
@@ -14778,7 +14778,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -16300,7 +16300,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 86.726166000000006, 417.826622333827004, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ wraparound"
+									"text" : "k1~ wraparound"
 								}
 
 							}
@@ -16314,7 +16314,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 71.0, 488.0, 108.0 ],
-									"text" : "While creating the initial loop you can wraparound the area recorded thus far by going below \"zero\" (or above \"one\" if creating the loop in reverse). When doing this you will overdub (and hear) the audio that was previously written to that part of the buffer.\n\nWhen creating a wraparound loop in reverse, karma_re~ will set the loop in/out points so that only the recorded part of the buffer is used for playback.",
+									"text" : "While creating the initial loop you can wraparound the area recorded thus far by going below \"zero\" (or above \"one\" if creating the loop in reverse). When doing this you will overdub (and hear) the audio that was previously written to that part of the buffer.\n\nWhen creating a wraparound loop in reverse, k1~ will set the loop in/out points so that only the recorded part of the buffer is used for playback.",
 									"textcolor" : [ 0.426676, 0.426663, 0.42667, 1.0 ]
 								}
 
@@ -16328,7 +16328,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 10.0, 6.0, 472.0, 64.0 ],
-									"text" : "karma_re~"
+									"text" : "k1~"
 								}
 
 							}
@@ -16701,7 +16701,7 @@
 					"filename" : "helpname.js",
 					"id" : "obj-9",
 					"ignoreclick" : 1,
-					"jsarguments" : [ "karma_re~" ],
+					"jsarguments" : [ "k1~" ],
 					"maxclass" : "jsui",
 					"numinlets" : 1,
 					"numoutlets" : 1,
@@ -16830,7 +16830,7 @@
 									"filename" : "helpdetails.js",
 									"id" : "obj-7",
 									"ignoreclick" : 1,
-									"jsarguments" : [ "karma_re~" ],
+									"jsarguments" : [ "k1~" ],
 									"maxclass" : "jsui",
 									"numinlets" : 1,
 									"numoutlets" : 1,
@@ -17823,7 +17823,7 @@
 									"numinlets" : 1,
 									"numoutlets" : 0,
 									"patching_rect" : [ 46.726165999999999, 674.063598999999954, 263.0, 36.0 ],
-									"text" : "karma_re~ \"basic\" plays the samples stored in buffer~  \"basic\"",
+									"text" : "k1~ \"basic\" plays the samples stored in buffer~  \"basic\"",
 									"textcolor" : [ 0.501961, 0.501961, 0.501961, 1.0 ]
 								}
 
@@ -18183,7 +18183,7 @@
 									"numoutlets" : 2,
 									"outlettype" : [ "signal", "list" ],
 									"patching_rect" : [ 46.726165999999999, 367.005248999999935, 147.251891999999998, 22.0 ],
-									"text" : "karma_re~ basic"
+									"text" : "k1~ basic"
 								}
 
 							}
@@ -18193,7 +18193,7 @@
 									"filename" : "helpargs.js",
 									"id" : "obj-8",
 									"ignoreclick" : 1,
-									"jsarguments" : [ "karma_re~" ],
+									"jsarguments" : [ "k1~" ],
 									"maxclass" : "jsui",
 									"numinlets" : 1,
 									"numoutlets" : 1,
@@ -18669,7 +18669,7 @@
 					"filename" : "helpname.js",
 					"id" : "obj-8",
 					"ignoreclick" : 1,
-					"jsarguments" : [ "karma_re~" ],
+					"jsarguments" : [ "k1~" ],
 					"maxclass" : "jsui",
 					"numinlets" : 1,
 					"numoutlets" : 1,
@@ -18843,7 +18843,7 @@
 				"implicit" : 1
 			}
 , 			{
-				"name" : "karma_re~.mxo",
+				"name" : "k1~.mxo",
 				"type" : "iLaX"
 			}
 , 			{
