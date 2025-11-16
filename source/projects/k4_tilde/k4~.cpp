@@ -14,9 +14,18 @@
 #include "fade_engine.hpp"
 #include "poly_arrays.hpp"
 #include "buffer_utils.hpp"
+#include "math_utils.hpp"
+#include "state_machine.hpp"
+#include "types.hpp"
 
 // Import karma namespace constants for use in this file
 using namespace karma;
+
+// Type aliases for better code clarity
+using karma::SamplePosition;
+using karma::FrameCount;
+using karma::ChannelCount;
+using karma::Phase;
 
 // =============================================================================
 // NON-CONFIGURABLE ARCHITECTURAL CONSTANTS
