@@ -6,6 +6,13 @@
 
 #include "karma_config.h"
 
+// =============================================================================
+// MODERN C++17 HELPER LIBRARIES
+// =============================================================================
+
+#include "interpolation.hpp"
+#include "fade_engine.hpp"
+
 // Import karma namespace constants for use in this file
 using namespace karma;
 
@@ -374,122 +381,55 @@ static inline void kh_process_initial_loop_ipoke_recording_stereo(
 // --------------------------------------------------------------------------------------
 
 
-// Linear Interp
-static inline double kh_linear_interp(double f, double x, double y)
-{
-    return (x + f*(y - x));
+// =============================================================================
+// INTERPOLATION WRAPPER FUNCTIONS (delegate to interpolation.hpp)
+// =============================================================================
+
+static inline double kh_linear_interp(double f, double x, double y) {
+    return karma::linear_interp(f, x, y);
 }
 
-// Hermitic Cubic Interp, 4-point 3rd-order, ( James McCartney / Alex Harker )
-static inline double kh_cubic_interp(double f, double w, double x, double y, double z)
-{
-    return ((((0.5*(z - w) + 1.5*(x - y))*f + (w - 2.5*x + y + y - 0.5*z))*f + (0.5*(y - w)))*f + x);
+static inline double kh_cubic_interp(double f, double w, double x, double y, double z) {
+    return karma::cubic_interp(f, w, x, y, z);
 }
 
-// Catmull-Rom Spline Interp, 4-point 3rd-order, ( Paul Breeuwsma / Paul Bourke )
-static inline double kh_spline_interp(double f, double w, double x, double y, double z)
-{
-    return (((-0.5*w + 1.5*x - 1.5*y + 0.5*z)*pow(f,3)) + ((w - 2.5*x + y + y - 0.5*z)*pow(f,2)) + ((-0.5*w + 0.5*y)*f) + x);
+static inline double kh_spline_interp(double f, double w, double x, double y, double z) {
+    return karma::spline_interp(f, w, x, y, z);
 }
 
 
-// easing function for recording (with ipoke)
+// =============================================================================
+// FADE/RAMP WRAPPER FUNCTIONS (delegate to fade_engine.hpp)
+// =============================================================================
+
 static inline double kh_ease_record(double y1, char updwn, double globalramp, long playfade)
 {
-    double ifup    = (1.0 - (((double)playfade) / globalramp)) * PI;
-    double ifdown  = (((double)playfade) / globalramp) * PI;
-    return updwn ? y1 * (0.5 * (1.0 - cos(ifup))) : y1 * (0.5 * (1.0 - cos(ifdown)));
+    return karma::ease_record(y1, updwn != 0, globalramp, playfade);
 }
 
-// easing function for switch & ramp
 static inline double kh_ease_switchramp(double y1, double snrfade, switchramp_type_t snrtype)
 {
-    switch (snrtype)
-    {
-        case switchramp_type_t::LINEAR: 
-            y1  = y1 * (1.0 - snrfade);
-            break;
-        case switchramp_type_t::SINE_IN: 
-            y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));
-            break;
-        case switchramp_type_t::CUBIC_IN: 
-            y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));
-            break;
-        case switchramp_type_t::CUBIC_OUT: 
-            snrfade = snrfade - 1;
-            y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));
-            break;
-        case switchramp_type_t::EXPO_IN: 
-            snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
-            y1  = y1 * (1.0 - snrfade);
-            break;
-        case switchramp_type_t::EXPO_OUT: 
-            snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
-            y1  = y1 * (1.0 - snrfade);
-            break;
-        case switchramp_type_t::EXPO_IN_OUT: 
-            if ((snrfade > 0) && (snrfade < 0.5))
-                y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
-            else if ((snrfade < 1) && (snrfade > 0.5))
-                y1 = y1 * (1.0 - (-0.5 * pow(2, ((-20 * snrfade) + 10)) + 1));
-            break;
-    }
-    return  y1;
+    return karma::ease_switchramp(y1, snrfade, snrtype);
 }
 
-// easing function for buffer read
-static inline void kh_ease_bufoff(long framesm1, float *buf, long pchans, long markposition, char direction, double globalramp)
+static inline void kh_ease_bufoff(long framesm1, float *buf, long pchans,
+                                  long markposition, char direction, double globalramp)
 {
-    long i, fadpos, c;
-    double fade;
-
-    if (globalramp <= 0) return;
-
-    for (i = 0; i < globalramp; i++)
-    {
-        fadpos = markposition + (direction * i);
-
-        if (fadpos < 0 || fadpos > framesm1)
-            continue;
-
-        fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
-
-        for (c = 0; c < pchans; c++)
-        {
-            buf[(fadpos * pchans) + c] *= fade;
-        }
-    }
+    karma::ease_buffer_fadeout(framesm1, buf, pchans, markposition, direction, globalramp);
 }
 
 static inline void kh_apply_fade(long pos, long framesm1, float *buf, long pchans, double fade)
 {
-    if (pos < 0 || pos > framesm1)
-        return;
-    for (long c = 0; c < pchans; c++) {
-        buf[(pos * pchans) + c] *= fade;
-    }
-};
+    karma::apply_fade_at_position(pos, framesm1, buf, pchans, fade);
+}
 
 
-// easing function for buffer write
 static inline void kh_ease_bufon(
-    long framesm1, float *buf, long pchans, long markposition1, long markposition2, 
+    long framesm1, float *buf, long pchans, long markposition1, long markposition2,
     char direction, double globalramp)
 {
-    long fadpos[3];
-    double fade;
-
-    for (long i = 0; i < globalramp; i++)
-    {
-        fade = 0.5 * (1.0 - cos(((double)i / globalramp) * PI));
-        fadpos[0] = (markposition1 - direction) - (direction * i);
-        fadpos[1] = (markposition2 - direction) - (direction * i);
-        fadpos[2] =  markposition2 + (direction * i);
-
-                    kh_apply_fade(fadpos[0], framesm1, buf, pchans, fade);
-            kh_apply_fade(fadpos[1], framesm1, buf, pchans, fade);
-            kh_apply_fade(fadpos[2], framesm1, buf, pchans, fade);
-    }
+    karma::ease_buffer_fadein(framesm1, buf, pchans, markposition1, markposition2,
+                              direction, globalramp);
 }
 
 // Helper function to handle recording fade completion logic
