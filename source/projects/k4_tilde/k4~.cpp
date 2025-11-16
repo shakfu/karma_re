@@ -230,6 +230,7 @@ struct t_karma {
 #include "stereo_recording.hpp"
 #include "loop_config.hpp"
 #include "message_handlers.hpp"
+#include "buffer_management.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -925,70 +926,13 @@ void karma_buf_dblclick(t_karma* x) { buffer_view(buffer_ref_getobject(x->buffer
 // called by 'karma_dsp64' method
 void karma_buf_setup(t_karma* x, t_symbol* s)
 {
-    t_buffer_obj* buf;
-    x->buffer.bufname = s;
-
-    if (!x->buffer.buf)
-        x->buffer.buf = buffer_ref_new((t_object*)x, s);
-    else
-        buffer_ref_set(x->buffer.buf, s);
-
-    buf = buffer_ref_getobject(x->buffer.buf);
-
-    if (buf == NULL) {
-        x->buffer.buf = 0;
-        // object_error((t_object *)x, "there is no buffer~ named %s",
-        // s->s_name);
-    } else {
-        //  if (buf != NULL) {
-        x->state.directionorig = 0;
-        x->timing.maxhead = x->timing.playhead = 0.0;
-        x->timing.recordhead = -1;
-        kh_init_buffer_properties(x, buf);
-        x->timing.bvsnorm = x->timing.vsnorm
-            * (x->buffer.bsr / (double)x->buffer.bframes);
-        x->loop.minloop = x->loop.startloop = 0.0;
-        x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((x->bchans > 1)
-                                                                     // ? x->bchans : 1);
-        x->timing.selstart = 0.0;
-        x->timing.selection = 1.0;
-    }
+    karma::setup_buffer(x, s);
 }
 
 // called on buffer modified notification
 void karma_buf_modify(t_karma* x, t_buffer_obj* b)
 {
-    double modbsr, modbmsr;
-    long   modchans, modframes;
-
-    if (b) {
-        modbsr = buffer_getsamplerate(b);
-        modchans = buffer_getchannelcount(b);
-        modframes = buffer_getframecount(b);
-        modbmsr = buffer_getmillisamplerate(b);
-
-        if (((x->buffer.bchans != modchans) || (x->buffer.bframes != modframes))
-            || (x->buffer.bmsr != modbmsr)) {
-            x->buffer.bsr = modbsr;
-            x->buffer.bmsr = modbmsr;
-            x->timing.srscale = modbsr / x->timing.ssr; // x->ssr / modbsr;
-            x->buffer.bframes = modframes;
-            x->buffer.bchans = modchans;
-            x->buffer.nchans = (modchans < x->buffer.ochans) ? modchans
-                                                             : x->buffer.ochans; // MIN
-            x->loop.minloop = x->loop.startloop = 0.0;
-            x->loop.maxloop = x->loop.endloop = (x->buffer.bframes - 1); // * ((modchans >
-                                                                         // 1) ? modchans
-                                                                         // : 1);
-            x->timing.bvsnorm = x->timing.vsnorm * (modbsr / (double)modframes);
-
-            karma_select_size(x, x->timing.selection);
-            karma_select_start(x, x->timing.selstart);
-            //          karma_select_internal(x, x->timing.selstart, x->timing.selection);
-
-            //          post("buff modify called"); // dev
-        }
-    }
+    karma::handle_buffer_modify(x, b);
 }
 
 
@@ -1002,90 +946,12 @@ void kh_buf_values_internal(
 void kh_buf_change_internal(
     t_karma* x, t_symbol* s, short argc, t_atom* argv) // " set ..... "
 {
-    t_bool    callerid = true; // identify caller of 'karma_buf_values_internal()'
-    t_symbol* bufname;
-    long      loop_points_flag;
-    double    templow, temphigh;
-
-    // Get buffer name from first argument (already validated in
-    // karma_buf_change)
-    bufname = atom_getsym(argv + 0);
-
-    // Validate buffer and set up references
-    if (!kh_validate_buffer(x, bufname)) {
-        return;
-    }
-
-    // Reset player state
-    x->state.directionorig = 0;
-    x->timing.maxhead = x->timing.playhead = 0.0;
-    x->timing.recordhead = -1;
-
-    // Process arguments to extract loop points and settings
-    kh_process_argc_args(x, s, argc, argv, &templow, &temphigh, &loop_points_flag);
-
-    // Check for early return flag from ps_originalloop handling
-    if (templow == KARMA_SENTINEL_VALUE) {
-        return;
-    }
-
-    // Apply the buffer values
-    kh_buf_values_internal(x, templow, temphigh, loop_points_flag, callerid);
+    karma::process_buffer_change_internal(x, s, argc, argv);
 }
 
 void karma_buf_change(t_karma* x, t_symbol* s, short ac, t_atom* av) // " set ..... "
 {
-    t_atom store_av[4];
-    short  i, j, a;
-    a = ac;
-
-    // if error return...
-
-    if (a <= 0) {
-        object_error(
-            (t_object*)x,
-            "%s message must be followed by argument(s) (it does nothing "
-            "alone)",
-            s->s_name);
-        return;
-    }
-
-    if (atom_gettype(av + 0) != A_SYM) {
-        object_error(
-            (t_object*)x,
-            "first argument to %s message must be a symbol (associated buffer~ "
-            "name)",
-            s->s_name);
-        return;
-    }
-
-    // ...else pass and defer
-
-    if (a > 4) {
-
-        object_warn(
-            (t_object*)x,
-            "too many arguments for %s message, truncating to first four args",
-            s->s_name);
-        a = 4;
-
-        for (i = 0; i < a; i++) {
-            store_av[i] = av[i];
-        }
-
-    } else {
-
-        for (i = 0; i < a; i++) {
-            store_av[i] = av[i];
-        }
-
-        for (j = i; j < 4; j++) {
-            atom_setsym(store_av + j, ps_dummy);
-        }
-    }
-
-    defer(x, (method)kh_buf_change_internal, s, ac, store_av); // main method
-    // kh_buf_change_internal(x, s, ac, store_av);
+    karma::prepare_buffer_change(x, s, ac, av);
 }
 
 void kh_setloop_internal(

@@ -22,7 +22,7 @@ inline t_bool validate_buffer(t_karma* x, t_symbol* bufname) noexcept
 {
     t_buffer_obj* buf_temp;
 
-    if (bufname == ps_nothing) {
+    if (bufname == gensym("")) {
         object_error((t_object*)x, "requires a valid buffer~ declaration (none found)");
         return false;
     }
@@ -71,19 +71,19 @@ inline t_bool validate_buffer(t_karma* x, t_symbol* bufname) noexcept
  */
 inline void parse_loop_points_sym(t_symbol* loop_points_sym, long* loop_points_flag) noexcept
 {
-    if (loop_points_sym == ps_dummy) {
+    if (loop_points_sym == gensym("")) {
         *loop_points_flag = 2;
     } else if (
-        (loop_points_sym == ps_phase) || (loop_points_sym == gensym("PHASE"))
-                                      || (loop_points_sym == gensym("ph"))) {
+        (loop_points_sym == gensym("phase")) || (loop_points_sym == gensym("PHASE"))
+                                             || (loop_points_sym == gensym("ph"))) {
         *loop_points_flag = 0;
     } else if (
-        (loop_points_sym == ps_samples) || (loop_points_sym == gensym("SAMPLES"))
-                                        || (loop_points_sym == gensym("samps"))) {
+        (loop_points_sym == gensym("samples")) || (loop_points_sym == gensym("SAMPLES"))
+                                                || (loop_points_sym == gensym("samps"))) {
         *loop_points_flag = 1;
     } else if (
-        (loop_points_sym == ps_milliseconds) || (loop_points_sym == gensym("MS"))
-                                             || (loop_points_sym == gensym("ms"))) {
+        (loop_points_sym == gensym("milliseconds")) || (loop_points_sym == gensym("MS"))
+                                                     || (loop_points_sym == gensym("ms"))) {
         *loop_points_flag = 2;
     } else {
         *loop_points_flag = 2; // default to milliseconds
@@ -197,9 +197,9 @@ inline void process_argc_args(
             }
         } else if (atom_gettype(argv + 1) == A_SYM) {
             loop_points_sym = atom_getsym(argv + 1);
-            if (loop_points_sym == ps_dummy) {
+            if (loop_points_sym == gensym("")) {
                 *loop_points_flag = 2;
-            } else if (loop_points_sym == ps_originalloop) {
+            } else if (loop_points_sym == gensym("originalloop")) {
                 object_warn(
                     (t_object*)x,
                     "%s message does not understand 'buffername' followed by "
@@ -212,7 +212,7 @@ inline void process_argc_args(
                     loop_points_sym->s_name);
                 object_warn(
                     (t_object*)x, "use %s %s message or just %s message instead)",
-                    gensym("setloop")->s_name, ps_originalloop->s_name,
+                    gensym("setloop")->s_name, gensym("originalloop")->s_name,
                     gensym("resetloop")->s_name);
                 // Set flag to indicate early return needed
                 *templow = KARMA_SENTINEL_VALUE; // Special flag value
