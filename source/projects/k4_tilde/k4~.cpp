@@ -231,6 +231,7 @@ struct t_karma {
 #include "loop_config.hpp"
 #include "message_handlers.hpp"
 #include "buffer_management.hpp"
+#include "selection_handlers.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -999,85 +1000,12 @@ void karma_setloop(t_karma* x, t_symbol* s, short ac, t_atom* av) // " setloop .
 // same as sending " setloop reset " message to karma~
 void karma_resetloop(t_karma* x) // " resetloop " message only
 {
-    long points_flag = 1;    // initial low/high points stored as samples
-                             // internally
-    bool   callerid = false; // false = called from "resetloop"
-    double initiallow = (double)x->loop.initiallow;   // initial low/high points stored
-                                                      // as long...
-    double initialhigh = (double)x->loop.initialhigh; // ...
-
-    //  if (!x->state.recordinit)
-    kh_buf_values_internal(x, initiallow, initialhigh, points_flag, callerid);
-    //  else
-    //      return;
+    karma::reset_loop_boundaries(x);
 }
 
 void karma_clock_list(t_karma* x)
 {
-    t_bool rlgtz = x->reportlist > 0;
-
-    if (rlgtz) // ('reportlist 0' == off, else milliseconds)
-    {
-        long frames = x->buffer.bframes - 1; // !! no '- 1' ??
-        long maxloop = x->loop.maxloop;
-        long minloop = x->loop.minloop;
-        long setloopsize;
-
-        double bmsr = x->buffer.bmsr;
-        double playhead = x->timing.playhead;
-        double selection = x->timing.selection;
-        double normalisedposition;
-        setloopsize = maxloop - minloop;
-
-        float reversestart = ((double)(frames - setloopsize));
-        float forwardstart = ((double)minloop); // ??           // (minloop + 1)
-        float reverseend = ((double)frames);
-        float forwardend = ((
-            double)maxloop); // !!           // (maxloop + 1)        // !! only
-                             // broken on initial buffersize report ?? !!
-        float selectionsize = (selection * ((double)setloopsize)); // (setloopsize
-                                                                   // + 1)    //
-                                                                   // !! only
-                                                                   // broken on
-                                                                   // initial
-                                                                   // buffersize
-                                                                   // report ??
-                                                                   // !!
-
-        t_bool directflag = x->state.directionorig < 0; // !! reverse = 1, forward = 0
-        t_bool record = x->state.record; // pointless (and actually is 'record' or
-                                         // 'overdub')
-        t_bool go = x->state.go;         // pointless (and actually this is on whenever
-                                         // transport is,...
-                                         // ...not stricly just 'play')
-        human_state_t statehuman = x->state.statehuman;
-        //  ((playhead-(frames-maxloop))/setloopsize) :
-        //  ((playhead-startloop)/setloopsize)  // ??
-        normalisedposition = CLAMP(
-            directflag ? ((playhead - (frames - setloopsize)) / setloopsize)
-                       : ((playhead - minloop) / setloopsize),
-            0., 1.);
-
-        t_atom datalist[7];                              // !! reverse logics are wrong ??
-        atom_setfloat(datalist + 0, normalisedposition); // position float normalised 0..1
-        atom_setlong(datalist + 1, go);                  // play flag int
-        atom_setlong(datalist + 2, record);              // record flag int
-        atom_setfloat(
-            datalist + 3,
-            (directflag ? reversestart : forwardstart) / bmsr); // start float ms
-        atom_setfloat(
-            datalist + 4,
-            (directflag ? reverseend : forwardend) / bmsr);  // end float ms
-        atom_setfloat(datalist + 5, (selectionsize / bmsr)); // window float ms
-        atom_setlong(datalist + 6, static_cast<long>(statehuman));  // state flag int
-
-        outlet_list(x->messout, 0L, 7, datalist);
-        //      outlet_list(x->messout, gensym("list"), 7, datalist);
-
-        if (sys_getdspstate() && (rlgtz)) { // '&& (x->reportlist > 0)' ??
-            clock_delay(x->tclock, x->reportlist);
-        }
-    }
+    karma::output_status_list(x);
 }
 
 void karma_assist(t_karma* x, void* b, long m, long a, char* s)
@@ -1162,85 +1090,12 @@ void karma_float(t_karma* x, double speedfloat)
 void karma_select_start(
     t_karma* x, double positionstart) // positionstart = "position" float message
 {
-    long bfrmaesminusone, setloopsize;
-    x->timing.selstart = CLAMP(positionstart, 0., 1.);
-
-    // for dealing with selection-out-of-bounds logic:
-
-    if (!x->state.loopdetermine) {
-        setloopsize = x->loop.maxloop - x->loop.minloop;
-
-        if (x->state.directionorig < 0) // if originally in reverse
-        {
-            bfrmaesminusone = x->buffer.bframes - 1;
-
-            x->loop.startloop = CLAMP(
-                (bfrmaesminusone - x->loop.maxloop) + (positionstart * setloopsize),
-                bfrmaesminusone - x->loop.maxloop, bfrmaesminusone);
-            x->loop.endloop = x->loop.startloop + (x->timing.selection * x->loop.maxloop);
-
-            if (x->loop.endloop > bfrmaesminusone) {
-                x->loop.endloop = (bfrmaesminusone - setloopsize)
-                    + (x->loop.endloop - bfrmaesminusone);
-                x->state.wrapflag = 1;
-            } else {
-                x->state.wrapflag = 0; // selection-in-bounds
-            }
-
-        } else { // if originally forwards
-
-            x->loop.startloop = CLAMP(
-                ((positionstart * setloopsize) + x->loop.minloop), x->loop.minloop,
-                x->loop.maxloop); // no need for CLAMP ??
-            x->loop.endloop = x->loop.startloop + (x->timing.selection * setloopsize);
-
-            if (x->loop.endloop > x->loop.maxloop) {
-                x->loop.endloop = x->loop.endloop - setloopsize;
-                x->state.wrapflag = 1;
-            } else {
-                x->state.wrapflag = 0; // selection-in-bounds
-            }
-        }
-    }
+    karma::set_selection_start(x, positionstart);
 }
 
 void karma_select_size(t_karma* x, double duration) // duration = "window" float message
 {
-    long bfrmaesminusone, setloopsize;
-
-    // double minsampsnorm = x->timing.bvsnorm * 0.5;           // half vectorsize
-    // samples minimum as normalised value  // !! buffer sr !! x->timing.selection =
-    // (duration < 0.0) ? 0.0 : duration; // !! allow zero for rodrigo !!
-    x->timing.selection = CLAMP(duration, 0., 1.);
-
-    // for dealing with selection-out-of-bounds logic:
-
-    if (!x->state.loopdetermine) {
-        setloopsize = x->loop.maxloop - x->loop.minloop;
-        x->loop.endloop = x->loop.startloop + (x->timing.selection * setloopsize);
-
-        if (x->state.directionorig < 0) // if originally in reverse
-        {
-            bfrmaesminusone = x->buffer.bframes - 1;
-
-            if (x->loop.endloop > bfrmaesminusone) {
-                x->loop.endloop = (bfrmaesminusone - setloopsize)
-                    + (x->loop.endloop - bfrmaesminusone);
-                x->state.wrapflag = 1;
-            } else {
-                x->state.wrapflag = 0; // selection-in-bounds
-            }
-
-        } else { // if originally forwards
-
-            if (x->loop.endloop > x->loop.maxloop) {
-                x->loop.endloop = x->loop.endloop - setloopsize;
-                x->state.wrapflag = 1;
-            } else {
-                x->state.wrapflag = 0; // selection-in-bounds
-            }
-        }
-    }
+    karma::set_selection_size(x, duration);
 }
 
 void karma_stop(t_karma* x)
