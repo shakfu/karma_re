@@ -223,6 +223,7 @@ struct t_karma {
 #include "dsp_utils.hpp"
 #include "recording_state.hpp"
 #include "playback_dsp.hpp"
+#include "recording_dsp.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -3311,101 +3312,21 @@ void kh_process_ipoke_recording(
     double overdubamp, double globalramp, long recordfade, char recfadeflag,
     double* pokesteps, double* writeval1, t_bool* dirt)
 {
-    long   i;
-    double recplaydif, coeff1;
-
-    // Handle first record head initialization
-    if (*recordhead < 0) {
-        *recordhead = playhead;
-        *pokesteps = 0.0;
-    }
-
-    if (*recordhead == playhead) {
-        *writeval1 += recin1;
-        *pokesteps += 1.0;
-    } else {
-        if (*pokesteps > 1.0) { // linear-averaging for speed < 1x
-            *writeval1 = *writeval1 / *pokesteps;
-            *pokesteps = 1.0;
-        }
-        b[*recordhead * pchans] = *writeval1;
-        recplaydif = (double)(playhead - *recordhead);
-        if (recplaydif > 0) { // linear-interpolation for speed > 1x
-            coeff1 = (recin1 - *writeval1) / recplaydif;
-            for (i = *recordhead + 1; i < playhead; i++) {
-                *writeval1 += coeff1;
-                b[i * pchans] = *writeval1;
-            }
-        } else {
-            coeff1 = (recin1 - *writeval1) / recplaydif;
-            for (i = *recordhead - 1; i > playhead; i--) {
-                *writeval1 -= coeff1;
-                b[i * pchans] = *writeval1;
-            }
-        }
-        *writeval1 = recin1;
-    }
-    *recordhead = playhead;
-    *dirt = 1;
+    karma::process_ipoke_recording(b, pchans, playhead, recordhead, recin1, overdubamp, globalramp,
+                                    recordfade, recfadeflag, pokesteps, writeval1, dirt);
 }
 
 static inline void kh_process_recording_fade(
     double globalramp, long* recordfade, char* recfadeflag, t_bool* record,
     t_bool* triginit, t_bool* jumpflag)
 {
-    if (globalramp) { // realtime ramps for record on/off
-        if (*recordfade < globalramp) {
-            (*recordfade)++;
-            if ((*recfadeflag) && (*recordfade >= globalramp)) {
-                if (*recfadeflag == 2) {
-                    *triginit = *jumpflag = 1;
-                    *recordfade = 0;
-                } else if (*recfadeflag == 5) {
-                    *record = 1;
-                } else {
-                    *record = 0;
-                }
-                *recfadeflag = 0;
-            }
-        }
-    } else {
-        if (*recfadeflag) {
-            if (*recfadeflag == 2) {
-                *triginit = *jumpflag = 1;
-            } else if (*recfadeflag == 5) {
-                *record = 1;
-            } else {
-                *record = 0;
-            }
-            *recfadeflag = 0;
-        }
-    }
+    karma::process_recording_fade(globalramp, recordfade, recfadeflag, record, triginit, jumpflag);
 }
 
 static inline void kh_process_jump_logic(
     t_karma* x, float* b, double* accuratehead, t_bool* jumpflag, char direction)
 {
-    if (*jumpflag) { // jump
-        if (x->state.directionorig >= 0) {
-            *accuratehead = x->timing.jumphead * x->timing.maxhead; // !! maxhead !!
-        } else {
-            *accuratehead = (x->buffer.bframes - 1)
-                - (((x->buffer.bframes - 1) - x->timing.maxhead) * x->timing.jumphead);
-        }
-        *jumpflag = 0;
-        x->fade.snrfade = 0.0;
-        if (x->state.record) {
-            if (x->fade.globalramp) {
-                kh_ease_bufon(
-                    x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead,
-                    x->timing.recordhead, direction, x->fade.globalramp);
-                x->fade.recordfade = 0;
-            }
-            x->fade.recfadeflag = 0;
-            x->timing.recordhead = -1;
-        }
-        x->state.triginit = 0;
-    }
+    karma::process_jump_logic(x, b, accuratehead, jumpflag, direction);
 }
 
 static inline void kh_process_initial_loop_ipoke_recording(
