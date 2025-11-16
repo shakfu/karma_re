@@ -221,6 +221,7 @@ struct t_karma {
 // Include headers after t_karma struct definition (require complete type)
 #include "loop_bounds.hpp"
 #include "dsp_utils.hpp"
+#include "recording_state.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -447,42 +448,13 @@ static inline void kh_ease_bufon(
 
 // Helper function to handle recording fade completion logic
 static inline void kh_process_recording_fade_completion(
-    char recfadeflag, char *recendmark, t_bool *record, 
+    char recfadeflag, char *recendmark, t_bool *record,
     t_bool *triginit, t_bool *jumpflag, t_bool *loopdetermine,
-    long *recordfade, char directionorig, long *maxloop, 
+    long *recordfade, char directionorig, long *maxloop,
     long maxhead, long frames)
 {
-
-    if (recfadeflag == 2) {
-        *recendmark = 4;
-        *triginit = *jumpflag = 1;
-        *recordfade = 0;
-    } else if (recfadeflag == 5) {
-        *record = 1;
-    }
-    
-    switch (*recendmark) {
-        case 0:
-            *record = 0;
-            break;
-        case 1:
-            if (directionorig < 0) {
-                *maxloop = (frames - 1) - maxhead;
-            } else {
-                *maxloop = maxhead;
-            }
-        case 2:
-            *record = *loopdetermine = 0;
-            *triginit = 1;
-            break;
-        case 3:
-            *record = *triginit = 1;
-            *recordfade = *loopdetermine = 0;
-            break;
-        case 4:
-            *recendmark = 0;
-            break;
-    }
+    karma::process_recording_fade_completion(recfadeflag, recendmark, record, triginit, jumpflag,
+                                             loopdetermine, recordfade, directionorig, maxloop, maxhead, frames);
 }
 
 // Helper function to calculate sync outlet output
@@ -573,29 +545,10 @@ static inline double kh_perform_playback_interpolation(
 
 // Helper function to handle playfade state machine logic
 static inline void kh_process_playfade_state(
-    char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag, 
+    char *playfadeflag, t_bool *go, t_bool *triginit, t_bool *jumpflag,
     t_bool *loopdetermine, long *playfade, double *snrfade, t_bool record)
 {
-    switch (*playfadeflag) {
-        case 0:
-            break;
-        case 1:
-            *playfadeflag = *go = 0;
-            break;
-        case 2:
-            if (!record)
-                *triginit = *jumpflag = 1;
-            // Fall through to case 3
-        case 3:
-            *playfadeflag = *playfade = 0;
-            break;
-        case 4:  // append
-            *go = *triginit = *loopdetermine = 1;
-            *snrfade = 0.0;
-            *playfade = 0;
-            *playfadeflag = 0;
-            break;
-    }
+    karma::process_playfade_state(playfadeflag, go, triginit, jumpflag, loopdetermine, playfade, snrfade, record);
 }
 
 // Helper function to handle loop initialization and calculation
@@ -604,105 +557,15 @@ static inline void kh_process_loop_initialization(
     long *setloopsize, t_bool *wrapflag, char *recendmark_ptr,
     t_bool triginit, t_bool jumpflag)
 {
-    if (triginit) {
-        if (x->state.recendmark) {  // calculate end of loop
-            if (x->state.directionorig >= 0) {
-                x->loop.maxloop = CLAMP(x->timing.maxhead, KARMA_MIN_LOOP_SIZE, x->buffer.bframes - 1);
-                *setloopsize = x->loop.maxloop - x->loop.minloop;
-                *accuratehead = x->loop.startloop = x->loop.minloop + (x->timing.selstart * (*setloopsize));
-                x->loop.endloop = x->loop.startloop + (x->timing.selection * (*setloopsize));
-                if (x->loop.endloop > x->loop.maxloop) {
-                    x->loop.endloop = x->loop.endloop - ((*setloopsize) + 1);
-                    *wrapflag = 1;
-                } else {
-                    *wrapflag = 0;
-                }
-                if (direction < 0) {
-                    if (x->fade.globalramp)
-                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                }
-            } else {
-                x->loop.maxloop = CLAMP((x->buffer.bframes - 1) - x->timing.maxhead, KARMA_MIN_LOOP_SIZE, x->buffer.bframes - 1);
-                *setloopsize = x->loop.maxloop - x->loop.minloop;
-                x->loop.startloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->timing.selstart * (*setloopsize));
-                if (x->loop.endloop > (x->buffer.bframes - 1)) {
-                    x->loop.endloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->loop.endloop - x->buffer.bframes);
-                    *wrapflag = 1;
-                } else {
-                    *wrapflag = 0;
-                }
-                *accuratehead = x->loop.endloop;
-                if (direction > 0) {
-                    if (x->fade.globalramp)
-                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                }
-            }
-            if (x->fade.globalramp)
-                kh_ease_bufoff(x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.maxhead, -direction, x->fade.globalramp);
-            x->fade.snrfade = 0.0;
-            x->state.append = x->state.alternateflag = 0;
-            *recendmark_ptr = 0;
-        } else {    // jump / play (inside 'window')
-            *setloopsize = x->loop.maxloop - x->loop.minloop;
-            if (jumpflag)
-                *accuratehead = (x->state.directionorig >= 0) ? ((x->timing.jumphead * (*setloopsize)) + x->loop.minloop) : (((x->buffer.bframes - 1) - (x->loop.maxloop)) + (x->timing.jumphead * (*setloopsize)));
-            else
-                *accuratehead = (direction < 0) ? x->loop.endloop : x->loop.startloop;
-            if (x->state.record) {
-                if (x->fade.globalramp) {
-                    kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                }
-            }
-            x->fade.snrfade = 0.0;
-        }
-    }
+    karma::process_loop_initialization(x, b, accuratehead, direction, setloopsize, wrapflag,
+                                      recendmark_ptr, triginit, jumpflag);
 }
 
 // Helper function to handle initial loop creation state
 static inline void kh_process_initial_loop_creation(
     t_karma *x, float *b, double *accuratehead, char direction, t_bool *triginit_ptr)
 {
-    if (x->state.go) {
-        if (x->state.triginit) {
-            if (x->state.jumpflag) {
-                // Jump logic handled by existing karma_handle_jump_logic function
-            } else if (x->state.append) {
-                x->fade.snrfade = 0.0;
-                *triginit_ptr = 0;
-                if (x->state.record) {
-                    *accuratehead = x->timing.maxhead;
-                    if (x->fade.globalramp) {
-                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                        x->fade.recordfade = 0;
-                    }
-                    x->state.alternateflag = 1;
-                    x->fade.recfadeflag = 0;
-                    x->timing.recordhead = -1;
-                } else {
-                    *accuratehead = (x->state.directionorig >= 0) ? 0.0 : (x->buffer.bframes - 1);
-                    if (x->fade.globalramp) {
-                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                    }
-                }
-            } else {  // regular start
-                x->fade.snrfade = 0.0;
-                *triginit_ptr = 0;
-                *accuratehead = (x->state.directionorig >= 0) ? 0.0 : (x->buffer.bframes - 1);
-                if (x->state.record) {
-                    if (x->fade.globalramp) {
-                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                        x->fade.recordfade = 0;
-                    }
-                    x->fade.recfadeflag = 0;
-                    x->timing.recordhead = -1;
-                } else {
-                    if (x->fade.globalramp) {
-                        kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, *accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-                    }
-                }
-            }
-        }
-    }
+    karma::process_initial_loop_creation(x, b, accuratehead, direction, triginit_ptr);
 }
 
 // interpolation points
