@@ -218,8 +218,9 @@ struct t_karma {
     void    *tclock;            // list timer pointer
 };
 
-// Include loop_bounds.hpp after t_karma struct definition (requires complete type)
+// Include headers after t_karma struct definition (require complete type)
 #include "loop_bounds.hpp"
+#include "dsp_utils.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -490,42 +491,21 @@ static inline void kh_calculate_sync_output(
     double **outPh, double accuratehead, double minloop, double maxloop,
     char directionorig, long frames, double setloopsize)
 {
-    *o1prev = osamp1;
-    *(*out1)++ = osamp1;
-    if (syncoutlet) {
-        setloopsize = maxloop - minloop;
-        *(*outPh)++ = (directionorig >= 0) ? 
-                      ((accuratehead - minloop) / setloopsize) : 
-                      ((accuratehead - (frames - setloopsize)) / setloopsize);
-    }
+    karma::calculate_sync_output(osamp1, o1prev, out1, syncoutlet, outPh,
+                                   accuratehead, minloop, maxloop, directionorig, frames, setloopsize);
 }
 
 // Helper function to apply iPoke interpolation over a range
 static inline void kh_apply_ipoke_interpolation(
     float *b, long pchans, long start_idx, long end_idx,
-    double *writeval1, double coeff1, char direction) 
+    double *writeval1, double coeff1, char direction)
 {
-    if (direction > 0) {
-        for (long i = start_idx; i < end_idx; i++) {
-            *writeval1 += coeff1;
-            b[i * pchans] = *writeval1;
-        }
-    } else {
-        for (long i = start_idx; i > end_idx; i--) {
-            *writeval1 -= coeff1;
-            b[i * pchans] = *writeval1;
-        }
-    }
+    karma::apply_ipoke_interpolation(b, pchans, start_idx, end_idx, writeval1, coeff1, direction);
 }
 
 // Helper function to initialize buffer properties
 static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
-    x->buffer.bchans   = buffer_getchannelcount(buf);
-    x->buffer.bframes  = buffer_getframecount(buf);
-    x->buffer.bmsr     = buffer_getmillisamplerate(buf);
-    x->buffer.bsr      = buffer_getsamplerate(buf);
-    x->buffer.nchans   = (x->buffer.bchans < x->buffer.ochans) ? x->buffer.bchans : x->buffer.ochans;  // MIN
-    x->timing.srscale  = x->buffer.bsr / x->timing.ssr;
+    karma::init_buffer_properties(x, buf);
 }
 
 // Helper function to handle recording state cleanup after boundary adjustments
