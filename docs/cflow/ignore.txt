@@ -78,4 +78,8 @@ cos
 sin
 trunc
 
+error
+
+sysmem_newptrclear
+sysmem_freeptr
 
