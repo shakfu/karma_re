@@ -12,6 +12,8 @@
 
 #include "interpolation.hpp"
 #include "fade_engine.hpp"
+#include "poly_arrays.hpp"
+#include "buffer_utils.hpp"
 
 // Import karma namespace constants for use in this file
 using namespace karma;
@@ -199,13 +201,9 @@ struct t_karma {
 
     short   speedconnect;       // 'count[]' info for 'speed' as signal or float in perform routines
 
-    // Multichannel processing arrays (pre-allocated to avoid real-time allocation)
-    double  *poly_osamp;        // output sample arrays for multichannel
-    double  *poly_oprev;        // previous output arrays for multichannel
-    double  *poly_odif;         // output difference arrays for multichannel
-    double  *poly_recin;        // record input arrays for multichannel
-    long    poly_maxchans;      // maximum allocated channel count
-    long    input_channels;     // current input channel count for auto-adapting
+    // Multichannel processing arrays (RAII managed)
+    karma::PolyArrays *poly_arrays;  // RAII wrapper for poly channel arrays
+    long    input_channels;          // current input channel count for auto-adapting
 
     void    *messout;           // list outlet pointer
     void    *tclock;            // list timer pointer
@@ -789,35 +787,21 @@ static inline void kh_process_initial_loop_creation(
 
 // interpolation points
 // Helper to wrap index for forward or reverse looping
+// =============================================================================
+// BUFFER INDEX WRAPPER FUNCTIONS (delegate to buffer_utils.hpp)
+// =============================================================================
+
 static inline long kh_wrap_index(long idx, char directionorig, long maxloop, long framesm1) {
-    if (directionorig >= 0) {
-        // Forward: wrap between 0 and maxloop
-        if (idx < 0)
-            return (maxloop + 1) + idx;
-        else if (idx > maxloop)
-            return idx - (maxloop + 1);
-        else
-            return idx;
-    } else {
-        // Reverse: wrap between (framesm1 - maxloop) and framesm1
-        long min = framesm1 - maxloop;
-        if (idx < min)
-            return framesm1 - (min - idx);
-        else if (idx > framesm1)
-            return min + (idx - framesm1);
-        else
-            return idx;
-    }
+    return karma::wrap_buffer_index(idx, directionorig >= 0, maxloop, framesm1);
 }
 
 static inline void kh_interp_index(
     long playhead, long *indx0, long *indx1, long *indx2, long *indx3,
     char direction, char directionorig, long maxloop, long framesm1)
 {
-    *indx0 = kh_wrap_index(playhead - direction, directionorig, maxloop, framesm1);
-    *indx1 = playhead;
-    *indx2 = kh_wrap_index(playhead + direction, directionorig, maxloop, framesm1);
-    *indx3 = kh_wrap_index(*indx2 + direction, directionorig, maxloop, framesm1);
+    karma::calculate_interp_indices_legacy(
+        playhead, indx0, indx1, indx2, indx3,
+        direction, directionorig >= 0, maxloop, framesm1);
 }
 
 // Calculate interpolation fraction and perform audio interpolation in one step
@@ -1140,10 +1124,11 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         }
 
         // Allocate multichannel processing arrays for maximum expected channels
+        // Calculate channel allocation count (clamp to limits)
         long requested_chans = chans;
-        x->poly_maxchans = (chans > KARMA_STRUCT_CHANNEL_COUNT) ?
-                          ((chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) ? KARMA_ABSOLUTE_CHANNEL_LIMIT : chans) :
-                          KARMA_POLY_PREALLOC_COUNT;
+        long poly_maxchans = (chans > KARMA_STRUCT_CHANNEL_COUNT) ?
+                             ((chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) ? KARMA_ABSOLUTE_CHANNEL_LIMIT : chans) :
+                             KARMA_POLY_PREALLOC_COUNT;
 
         // Warn if we had to clamp the channel count
         if (chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) {
@@ -1151,37 +1136,12 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
                        requested_chans, KARMA_ABSOLUTE_CHANNEL_LIMIT, KARMA_ABSOLUTE_CHANNEL_LIMIT);
         }
 
-        // Allocate multichannel processing arrays with error handling
-        x->poly_osamp = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
-        if (!x->poly_osamp) {
+        // Allocate multichannel processing arrays using RAII wrapper
+        x->poly_arrays = new (std::nothrow) karma::PolyArrays(poly_maxchans);
+        if (!x->poly_arrays || !x->poly_arrays->is_valid()) {
             object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
-            object_free((t_object*)x);
-            return NULL;
-        }
-
-        x->poly_oprev = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
-        if (!x->poly_oprev) {
-            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
-            sysmem_freeptr(x->poly_osamp);
-            object_free((t_object*)x);
-            return NULL;
-        }
-
-        x->poly_odif = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
-        if (!x->poly_odif) {
-            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
-            sysmem_freeptr(x->poly_osamp);
-            sysmem_freeptr(x->poly_oprev);
-            object_free((t_object*)x);
-            return NULL;
-        }
-
-        x->poly_recin = (double*)sysmem_newptrclear(x->poly_maxchans * sizeof(double));
-        if (!x->poly_recin) {
-            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
-            sysmem_freeptr(x->poly_osamp);
-            sysmem_freeptr(x->poly_oprev);
-            sysmem_freeptr(x->poly_odif);
+            delete x->poly_arrays;
+            x->poly_arrays = nullptr;
             object_free((t_object*)x);
             return NULL;
         }
@@ -1258,10 +1218,8 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->messout = listout(x); // data
         if (!x->messout) {
             object_error((t_object*)x, "Failed to create list outlet");
-            sysmem_freeptr(x->poly_osamp);
-            sysmem_freeptr(x->poly_oprev);
-            sysmem_freeptr(x->poly_odif);
-            sysmem_freeptr(x->poly_recin);
+            delete x->poly_arrays;
+            x->poly_arrays = nullptr;
             object_free((t_object*)x);
             return NULL;
         }
@@ -1270,10 +1228,8 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         if (!x->tclock) {
             object_error((t_object*)x, "Failed to create clock");
             object_free(x->messout);
-            sysmem_freeptr(x->poly_osamp);
-            sysmem_freeptr(x->poly_oprev);
-            sysmem_freeptr(x->poly_odif);
-            sysmem_freeptr(x->poly_recin);
+            delete x->poly_arrays;
+            x->poly_arrays = nullptr;
             object_free((t_object*)x);
             return NULL;
         }
@@ -1313,11 +1269,9 @@ void karma_free(t_karma* x)
     if (x->state.initskip) {
         dsp_free((t_pxobject*)x);
 
-        // Free multichannel processing arrays
-        if (x->poly_osamp) sysmem_freeptr(x->poly_osamp);
-        if (x->poly_oprev) sysmem_freeptr(x->poly_oprev);
-        if (x->poly_odif) sysmem_freeptr(x->poly_odif);
-        if (x->poly_recin) sysmem_freeptr(x->poly_recin);
+        // Free multichannel processing arrays (RAII automatically handles cleanup)
+        delete x->poly_arrays;
+        x->poly_arrays = nullptr;
 
         object_free(x->buffer.buf);
         object_free(x->buffer.buf_temp);
@@ -3345,8 +3299,8 @@ void karma_poly_perform(
     long nchans = x->buffer.ochans;
 
     // Safety check: ensure we don't exceed allocated memory or configuration limits
-    if (nchans > x->poly_maxchans) {
-        nchans = x->poly_maxchans;
+    if (nchans > x->poly_arrays->max_channels()) {
+        nchans = x->poly_arrays->max_channels();
     }
 #if KARMA_VALIDATE_CHANNEL_BOUNDS
     if (nchans > KARMA_ABSOLUTE_CHANNEL_LIMIT) {
@@ -3381,10 +3335,10 @@ void karma_poly_perform(
     double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
     double speed, speedfloat, overdubamp, overdubprev, ovdbdif, selstart, selection;
     double frac, snrfade, globalramp, snrramp, coeff1, writeval1;
-    double* osamp = x->poly_osamp;
-    double* oprev = x->poly_oprev;
-    double* odif = x->poly_odif;
-    double* recin = x->poly_recin;
+    double* osamp = x->poly_arrays->osamp();
+    double* oprev = x->poly_arrays->oprev();
+    double* odif = x->poly_arrays->odif();
+    double* recin = x->poly_arrays->recin();
 
     t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt,
         wrapflag, triginit;

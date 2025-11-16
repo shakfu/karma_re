@@ -43,28 +43,28 @@ public:
         }
 
         // Allocate arrays one at a time, checking for failure
-        osamp_ = static_cast<double*>(
+        osamp_ = reinterpret_cast<double*>(
             sysmem_newptrclear(max_channels * sizeof(double)));
         if (!osamp_) {
             cleanup();
             return;
         }
 
-        oprev_ = static_cast<double*>(
+        oprev_ = reinterpret_cast<double*>(
             sysmem_newptrclear(max_channels * sizeof(double)));
         if (!oprev_) {
             cleanup();
             return;
         }
 
-        odif_ = static_cast<double*>(
+        odif_ = reinterpret_cast<double*>(
             sysmem_newptrclear(max_channels * sizeof(double)));
         if (!odif_) {
             cleanup();
             return;
         }
 
-        recin_ = static_cast<double*>(
+        recin_ = reinterpret_cast<double*>(
             sysmem_newptrclear(max_channels * sizeof(double)));
         if (!recin_) {
             cleanup();
