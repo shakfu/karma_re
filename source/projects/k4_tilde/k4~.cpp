@@ -218,6 +218,8 @@ struct t_karma {
     void    *tclock;            // list timer pointer
 };
 
+// Include loop_bounds.hpp after t_karma struct definition (requires complete type)
+#include "loop_bounds.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy; 
@@ -527,116 +529,42 @@ static inline void kh_init_buffer_properties(t_karma *x, t_buffer_obj *buf) {
 static inline void kh_process_recording_cleanup(
     t_karma *x, float *b, double accuratehead, char direction, t_bool use_ease_on, double ease_pos)
 {
-    x->fade.snrfade = 0.0;
-    if (x->state.record) {
-        if (x->fade.globalramp) {
-            if (use_ease_on) {
-                kh_ease_bufon(x->buffer.bframes - 1, b, x->buffer.nchans, 
-                             accuratehead, x->timing.recordhead, direction, x->fade.globalramp);
-            } else {
-                kh_ease_bufoff(x->buffer.bframes - 1, b, x->buffer.nchans, 
-                              ease_pos, -direction, x->fade.globalramp);
-            }
-            x->fade.recordfade = 0;
-        }
-        x->fade.recfadeflag = 0;
-        x->timing.recordhead = -1;
-    }
+    karma::process_recording_cleanup(x, b, accuratehead, direction, use_ease_on, ease_pos);
 }
 
 // Helper function to handle forward direction boundary wrapping for jumpflag
 static inline void kh_process_forward_jump_boundary(
     t_karma *x, float *b, double *accuratehead, char direction)
 {
-    if (*accuratehead > x->loop.maxloop) {
-        *accuratehead = *accuratehead - (x->loop.maxloop - x->loop.minloop);
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
-    } else if (*accuratehead < 0.0) {
-        *accuratehead = x->loop.maxloop + *accuratehead;
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
-    }
+    karma::process_forward_jump_boundary(x, b, accuratehead, direction);
 }
 
 // Helper function to handle reverse direction boundary wrapping for jumpflag
 static inline void kh_process_reverse_jump_boundary(
     t_karma *x, float *b, double *accuratehead, char direction)
 {
-    long setloopsize = x->loop.maxloop - x->loop.minloop;
-    if (*accuratehead > (x->buffer.bframes - 1)) {
-        *accuratehead = ((x->buffer.bframes - 1) - setloopsize) + (*accuratehead - (x->buffer.bframes - 1));
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
-    } else if (*accuratehead < ((x->buffer.bframes - 1) - x->loop.maxloop)) {
-        *accuratehead = (x->buffer.bframes - 1) - (((x->buffer.bframes - 1) - setloopsize) - *accuratehead);
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
-    }
+    karma::process_reverse_jump_boundary(x, b, accuratehead, direction);
 }
 
 // Helper function to handle forward direction boundaries with wrapflag
 static inline void kh_process_forward_wrap_boundary(
     t_karma *x, float *b, double *accuratehead, char direction)
 {
-    long setloopsize = x->loop.maxloop - x->loop.minloop;
-    if (*accuratehead > x->loop.maxloop) {
-        *accuratehead = *accuratehead - setloopsize;
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, x->loop.maxloop);
-    } else if (*accuratehead < 0.0) {
-        *accuratehead = x->loop.maxloop + setloopsize;
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, x->loop.minloop);
-    }
+    karma::process_forward_wrap_boundary(x, b, accuratehead, direction);
 }
 
 // Helper function to handle reverse direction boundaries with wrapflag
 static inline void kh_process_reverse_wrap_boundary(
     t_karma *x, float *b, double *accuratehead, char direction)
 {
-    long setloopsize = x->loop.maxloop - x->loop.minloop;
-    if (*accuratehead < ((x->buffer.bframes - 1) - x->loop.maxloop)) {
-        *accuratehead = (x->buffer.bframes - 1) - (((x->buffer.bframes - 1) - setloopsize) - *accuratehead);
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, ((x->buffer.bframes - 1) - x->loop.maxloop));
-    } else if (*accuratehead > (x->buffer.bframes - 1)) {
-        *accuratehead = ((x->buffer.bframes - 1) - setloopsize) + (*accuratehead - (x->buffer.bframes - 1));
-        kh_process_recording_cleanup(x, b, *accuratehead, direction, 0, (x->buffer.bframes - 1));
-    }
+    karma::process_reverse_wrap_boundary(x, b, accuratehead, direction);
 }
 
 static inline void kh_process_loop_boundary(
-    t_karma *x, float *b, double *accuratehead, double speed, char direction, 
+    t_karma *x, float *b, double *accuratehead, double speed, char direction,
     long setloopsize, t_bool wrapflag, t_bool jumpflag)
 {
-    double speedsrscaled = speed * x->timing.srscale;
-    
-    if (x->state.record) {
-        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / KARMA_SPEED_LIMIT_DIVISOR)) ?
-                       ((setloopsize / KARMA_SPEED_LIMIT_DIVISOR) * direction) : speedsrscaled;
-    }
-    *accuratehead = *accuratehead + speedsrscaled;
-    
-    if (jumpflag) {
-        // Handle boundary wrapping for forward/reverse directions
-        if (x->state.directionorig >= 0) {
-            kh_process_forward_jump_boundary(x, b, accuratehead, direction);
-        } else {
-            kh_process_reverse_jump_boundary(x, b, accuratehead, direction);
-        }
-    } else {
-        // Regular window/position constraints handling
-        if (wrapflag) {
-            if ((*accuratehead > x->loop.endloop) && (*accuratehead < x->loop.startloop)) {
-                *accuratehead = (direction >= 0) ? x->loop.startloop : x->loop.endloop;
-                kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
-            } else if (x->state.directionorig >= 0) {
-                kh_process_forward_wrap_boundary(x, b, accuratehead, direction);
-            } else {
-                kh_process_reverse_wrap_boundary(x, b, accuratehead, direction);
-            }
-        } else {
-            // Not wrapflag
-            if ((*accuratehead > x->loop.endloop) || (*accuratehead < x->loop.startloop)) {
-                *accuratehead = (direction >= 0) ? x->loop.startloop : x->loop.endloop;
-                kh_process_recording_cleanup(x, b, *accuratehead, direction, 1, 0);
-            }
-        }
-    }
+    karma::process_loop_boundary(x, b, accuratehead, speed, direction, setloopsize, wrapflag, jumpflag);
 }
 
 // Helper function to perform playback interpolation
