@@ -224,6 +224,8 @@ struct t_karma {
 #include "recording_state.hpp"
 #include "playback_dsp.hpp"
 #include "recording_dsp.hpp"
+#include "perform_utils.hpp"
+#include "state_control.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -313,7 +315,7 @@ static inline void kh_interp_index(
 
 static inline void kh_setloop_internal(t_karma* x, t_symbol* s, short argc, t_atom* argv);
 
-static inline void kh_process_state_control(
+void kh_process_state_control(
     t_karma* x, control_state_t* statecontrol, t_bool* record, t_bool* go,
     t_bool* triginit, t_bool* loopdetermine, long* recordfade, char* recfadeflag,
     long* playfade, char* playfadeflag, char* recendmark);
@@ -1906,130 +1908,29 @@ void kh_process_state_control(
     t_bool* triginit, t_bool* loopdetermine, long* recordfade, char* recfadeflag,
     long* playfade, char* playfadeflag, char* recendmark)
 {
-    t_bool* alternateflag = &x->state.alternateflag;
-    double* snrfade = &x->fade.snrfade;
-
-    switch (*statecontrol) // "all-in-one 'switch' statement to catch and handle
-                           // all(most) messages" - raja
-    {
-    case control_state_t::ZERO:
-        break;
-    case control_state_t::RECORD_INITIAL_LOOP:
-        *record = *go = *triginit = *loopdetermine = 1;
-        *statecontrol = control_state_t::ZERO;
-        *recordfade = *recfadeflag = *playfade = *playfadeflag = 0;
-        break;
-    case control_state_t::RECORD_ALT:
-        *recendmark = 3;
-        *record = *recfadeflag = *playfadeflag = 1;
-        *statecontrol = control_state_t::ZERO;
-        *playfade = *recordfade = 0;
-        break;
-    case control_state_t::RECORD_OFF:
-        *recfadeflag = 1;
-        *playfadeflag = 3;
-        *statecontrol = control_state_t::ZERO;
-        *playfade = *recordfade = 0;
-        break;
-    case control_state_t::PLAY_ALT:
-        *recendmark = 2;
-        *recfadeflag = *playfadeflag = 1;
-        *statecontrol = control_state_t::ZERO;
-        *playfade = *recordfade = 0;
-        break;
-    case control_state_t::PLAY_ON:
-        *triginit = 1; // ?!?!
-        *statecontrol = control_state_t::ZERO;
-        break;
-    case control_state_t::STOP_ALT:
-        *playfade = *recordfade = 0;
-        *recendmark = *playfadeflag = *recfadeflag = 1;
-        *statecontrol = control_state_t::ZERO;
-        break;
-    case control_state_t::STOP_REGULAR:
-        if (*record) {
-            *recordfade = 0;
-            *recfadeflag = 1;
-        }
-        *playfade = 0;
-        *playfadeflag = 1;
-        *statecontrol = control_state_t::ZERO;
-        break;
-    case control_state_t::JUMP:
-        if (*record) {
-            *recordfade = 0;
-            *recfadeflag = 2;
-        }
-        *playfade = 0;
-        *playfadeflag = 2;
-        *statecontrol = control_state_t::ZERO;
-        break;
-    case control_state_t::APPEND:
-        *playfadeflag = 4; // !! modified in perform loop switch case(s) for
-                           // playing behind append
-        *playfade = 0;
-        *statecontrol = control_state_t::ZERO;
-        break;
-    case control_state_t::APPEND_SPECIAL:
-        *record = *loopdetermine = *alternateflag = 1;
-        *snrfade = 0.0;
-        *statecontrol = control_state_t::ZERO;
-        *recordfade = *recfadeflag = 0;
-        break;
-    case control_state_t::RECORD_ON:
-        *playfadeflag = 3;
-        *recfadeflag = 5;
-        *statecontrol = control_state_t::ZERO;
-        *recordfade = *playfade = 0;
-        break;
-    }
+    karma::process_state_control(
+        x, statecontrol, record, go, triginit, loopdetermine, recordfade,
+        recfadeflag, playfade, playfadeflag, recendmark);
 }
 
 // Helper function: Initialize performance variables
 static inline void kh_initialize_perform_vars(
     t_karma* x, double* accuratehead, long* playhead, t_bool* wrapflag)
 {
-    // Most variables now accessed directly from struct, only essential ones passed out
-    *accuratehead = x->timing.playhead;
-    *playhead = trunc(*accuratehead);
-    *wrapflag = x->state.wrapflag;
+    karma::initialize_perform_vars(x, accuratehead, playhead, wrapflag);
 }
 
 // Helper function: Handle direction changes
 static inline void kh_process_direction_change(t_karma* x, float* b, char directionprev, char direction)
 {
-    if (directionprev != direction) {
-        if (x->state.record && x->fade.globalramp) {
-            kh_ease_bufoff(
-                x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.recordhead,
-                -direction, x->fade.globalramp);
-            x->fade.recordfade = x->fade.recfadeflag = 0;
-            // recordhead = -1; // Note: this should be handled by caller
-        }
-        x->fade.snrfade = 0.0;
-    }
+    karma::process_direction_change(x, b, directionprev, direction);
 }
 
 // Helper function: Handle record on/off transitions
 static inline void kh_process_record_toggle(
     t_karma* x, float* b, double accuratehead, char direction, double speed, t_bool* dirt)
 {
-    if ((x->state.record - x->state.recordprev) < 0) { // samp @record-off
-        if (x->fade.globalramp)
-            kh_ease_bufoff(
-                x->buffer.bframes - 1, b, x->buffer.nchans, x->timing.recordhead,
-                direction, x->fade.globalramp);
-        x->timing.recordhead = -1;
-        *dirt = 1;
-    } else if ((x->state.record - x->state.recordprev) > 0) { // samp @record-on
-        x->fade.recordfade = x->fade.recfadeflag = 0;
-        if (speed < 1.0)
-            x->fade.snrfade = 0.0;
-        if (x->fade.globalramp)
-            kh_ease_bufoff(
-                x->buffer.bframes - 1, b, x->buffer.nchans, accuratehead, -direction,
-                x->fade.globalramp);
-    }
+    karma::process_record_toggle(x, b, accuratehead, direction, speed, dirt);
 }
 
 // mono perform
