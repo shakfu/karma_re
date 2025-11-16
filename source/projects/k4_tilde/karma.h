@@ -10,6 +10,12 @@
 #include "ext_atomic.h"
 
 // =============================================================================
+// KARMA NAMESPACE - C++17 Types and Constants
+// =============================================================================
+
+namespace karma {
+
+// =============================================================================
 // ENUM DEFINITIONS
 // =============================================================================
 
@@ -33,20 +39,20 @@
  * Any state -> JUMP (position change)
  * PLAY_ON -> APPEND -> RECORD_ON (extend loop)
  */
-typedef enum {
-    CONTROL_STATE_ZERO = 0,                // Idle state - no loop exists
-    CONTROL_STATE_RECORD_INITIAL_LOOP = 1, // Recording the first loop
-    CONTROL_STATE_RECORD_ALT = 2,          // Recording overdub layer
-    CONTROL_STATE_RECORD_OFF = 3,          // Stopping record with fade out
-    CONTROL_STATE_PLAY_ALT = 4,            // Playing after overdub
-    CONTROL_STATE_PLAY_ON = 5,             // Normal playback state
-    CONTROL_STATE_STOP_ALT = 6,            // Stopping after overdub
-    CONTROL_STATE_STOP_REGULAR = 7,        // Normal stop with fade out
-    CONTROL_STATE_JUMP = 8,                // Jump to specific position
-    CONTROL_STATE_APPEND = 9,              // Append mode preparation
-    CONTROL_STATE_APPEND_SPECIAL = 10,     // Append during record/overdub
-    CONTROL_STATE_RECORD_ON = 11           // Non-looped recording (append mode)
-} control_state_t;
+enum class control_state_t {
+    ZERO = 0,                // Idle state - no loop exists
+    RECORD_INITIAL_LOOP = 1, // Recording the first loop
+    RECORD_ALT = 2,          // Recording overdub layer
+    RECORD_OFF = 3,          // Stopping record with fade out
+    PLAY_ALT = 4,            // Playing after overdub
+    PLAY_ON = 5,             // Normal playback state
+    STOP_ALT = 6,            // Stopping after overdub
+    STOP_REGULAR = 7,        // Normal stop with fade out
+    JUMP = 8,                // Jump to specific position
+    APPEND = 9,              // Append mode preparation
+    APPEND_SPECIAL = 10,     // Append during record/overdub
+    RECORD_ON = 11           // Non-looped recording (append mode)
+};
 
 /**
  * @brief User-facing state representation for interface feedback
@@ -55,24 +61,24 @@ typedef enum {
  * Maps to the complex internal control_state_t but provides clear, intuitive
  * state names for UI elements and user feedback.
  */
-typedef enum {
-    HUMAN_STATE_STOP = 0,    // Stopped - no audio output
-    HUMAN_STATE_PLAY = 1,    // Playing back recorded loop
-    HUMAN_STATE_RECORD = 2,  // Recording new material
-    HUMAN_STATE_OVERDUB = 3, // Overdubbing onto existing loop
-    HUMAN_STATE_APPEND = 4,  // Appending to extend loop length
-    HUMAN_STATE_INITIAL = 5  // Initial state before first recording
-} human_state_t;
+enum class human_state_t {
+    STOP = 0,    // Stopped - no audio output
+    PLAY = 1,    // Playing back recorded loop
+    RECORD = 2,  // Recording new material
+    OVERDUB = 3, // Overdubbing onto existing loop
+    APPEND = 4,  // Appending to extend loop length
+    INITIAL = 5  // Initial state before first recording
+};
 
-typedef enum {
-    SWITCHRAMP_LINEAR = 0,     // linear
-    SWITCHRAMP_SINE_IN = 1,    // sine ease in
-    SWITCHRAMP_CUBIC_IN = 2,   // cubic ease in
-    SWITCHRAMP_CUBIC_OUT = 3,  // cubic ease out
-    SWITCHRAMP_EXPO_IN = 4,    // exponential ease in
-    SWITCHRAMP_EXPO_OUT = 5,   // exponential ease out
-    SWITCHRAMP_EXPO_IN_OUT = 6 // exponential ease in/out
-} switchramp_type_t;
+enum class switchramp_type_t {
+    LINEAR = 0,     // linear
+    SINE_IN = 1,    // sine ease in
+    CUBIC_IN = 2,   // cubic ease in
+    CUBIC_OUT = 3,  // cubic ease out
+    EXPO_IN = 4,    // exponential ease in
+    EXPO_OUT = 5,   // exponential ease out
+    EXPO_IN_OUT = 6 // exponential ease in/out
+};
 
 /**
  * @brief Audio interpolation methods for variable-speed playback
@@ -82,29 +88,41 @@ typedef enum {
  * - CPU performance (computational cost)
  * - Implementation complexity
  *
- * INTERP_LINEAR: Fastest, moderate quality
+ * LINEAR: Fastest, moderate quality
  * - Computational cost: 1 multiply + 1 add per sample
  * - Frequency response: -6dB at Nyquist, some aliasing
  * - Best for: Real-time performance, slight speed variations
  * - Implementation: 2-point linear interpolation
  *
- * INTERP_CUBIC: Better quality, higher cost
+ * CUBIC: Better quality, higher cost
  * - Computational cost: ~4x linear (4-point interpolation)
  * - Frequency response: Improved high-frequency preservation
  * - Best for: Musical applications, noticeable speed changes
  * - Implementation: Hermite cubic 4-point 3rd-order (James McCartney/Alex Harker)
  *
- * INTERP_SPLINE: Highest quality, highest cost
+ * SPLINE: Highest quality, highest cost
  * - Computational cost: Significantly higher than cubic
  * - Frequency response: Best preservation across spectrum
  * - Best for: Critical listening, large speed variations
  * - Implementation: Catmull-Rom spline 4-point 3rd-order (Paul Breeuwsma/Paul Bourke)
  */
-typedef enum {
-    INTERP_LINEAR = 0, // Linear interpolation (2-point)
-    INTERP_CUBIC = 1,  // Hermite cubic interpolation (4-point 3rd-order)
-    INTERP_SPLINE = 2  // Catmull-Rom spline interpolation (4-point 3rd-order)
-} interp_type_t;
+enum class interp_type_t {
+    LINEAR = 0, // Linear interpolation (2-point)
+    CUBIC = 1,  // Hermite cubic interpolation (4-point 3rd-order)
+    SPLINE = 2  // Catmull-Rom spline interpolation (4-point 3rd-order)
+};
+
+} // namespace karma
+
+// =============================================================================
+// MAX/MSP INTEGRATION - Global Namespace
+// =============================================================================
+
+// Use karma namespace types in global scope for backwards compatibility
+using karma::control_state_t;
+using karma::human_state_t;
+using karma::switchramp_type_t;
+using karma::interp_type_t;
 
 typedef struct t_karma t_karma;
 

@@ -6,52 +6,60 @@
 
 #include "karma_config.h"
 
+// Import karma namespace constants for use in this file
+using namespace karma;
+
 // =============================================================================
 // NON-CONFIGURABLE ARCHITECTURAL CONSTANTS
 // =============================================================================
 // These constants reflect fundamental architectural limits and CANNOT be changed
 // without modifying the t_karma struct definition and related code.
 
+namespace karma {
+
 // The karma~ external uses a hybrid channel architecture for performance:
 // - Channels 1-4: Individual struct fields (o1prev, o2prev, o3prev, o4prev)
 // - Channels 5+:  Dynamically allocated arrays (poly_oprev[], poly_odif[], etc.)
 // This design maintains compatibility while supporting arbitrary channel counts.
 
-#define KARMA_STRUCT_CHANNEL_COUNT 4  // Fixed number of o1prev/o2prev/o3prev/o4prev
-                                      // struct fields
-                                      // DO NOT MODIFY - Tied to code structure
-
-// =============================================================================
-// CONFIGURATION VALIDATION
-// =============================================================================
-
-// Compile-time validation of configuration values
-#if KARMA_ABSOLUTE_CHANNEL_LIMIT > 256
-    #error "KARMA_ABSOLUTE_CHANNEL_LIMIT cannot exceed 256 (performance constraint)"
-#endif
-
-#if KARMA_MIN_LOOP_SIZE < 64
-    #error "KARMA_MIN_LOOP_SIZE must be at least 64 samples"
-#endif
-
-#if KARMA_POLY_PREALLOC_COUNT > KARMA_ABSOLUTE_CHANNEL_LIMIT
-    #error "KARMA_POLY_PREALLOC_COUNT cannot exceed KARMA_ABSOLUTE_CHANNEL_LIMIT"
-#endif
-
-// Validate architectural constraint (this should never change)
-#if KARMA_STRUCT_CHANNEL_COUNT != 4
-    #error "KARMA_STRUCT_CHANNEL_COUNT must be 4 (matches o1prev/o2prev/o3prev/o4prev struct fields)"
-#endif
+constexpr long KARMA_STRUCT_CHANNEL_COUNT = 4;  // Fixed number of o1prev/o2prev/o3prev/o4prev
+                                                // struct fields
+                                                // DO NOT MODIFY - Tied to code structure
 
 // =============================================================================
 // DERIVED CONFIGURATION VALUES
 // =============================================================================
 
 // Calculate derived values from base configuration
-#define KARMA_POLY_ARRAY_SIZE (KARMA_ABSOLUTE_CHANNEL_LIMIT * sizeof(double))
+constexpr size_t KARMA_POLY_ARRAY_SIZE = KARMA_ABSOLUTE_CHANNEL_LIMIT * sizeof(double);
 
 // Interpolation buffer size calculation
-#define KARMA_INTERP_BUFFER_SIZE (KARMA_ABSOLUTE_CHANNEL_LIMIT * 4)  // 4 points per channel
+constexpr long KARMA_INTERP_BUFFER_SIZE = KARMA_ABSOLUTE_CHANNEL_LIMIT * 4;  // 4 points per channel
+
+} // namespace karma
+
+// Import architectural constants for use in this file
+using karma::KARMA_STRUCT_CHANNEL_COUNT;
+using karma::KARMA_POLY_ARRAY_SIZE;
+using karma::KARMA_INTERP_BUFFER_SIZE;
+
+// =============================================================================
+// CONFIGURATION VALIDATION
+// =============================================================================
+
+// Compile-time validation of configuration values using static_assert (C++17)
+static_assert(karma::KARMA_ABSOLUTE_CHANNEL_LIMIT <= 256,
+              "KARMA_ABSOLUTE_CHANNEL_LIMIT cannot exceed 256 (performance constraint)");
+
+static_assert(karma::KARMA_MIN_LOOP_SIZE >= 64,
+              "KARMA_MIN_LOOP_SIZE must be at least 64 samples");
+
+static_assert(karma::KARMA_POLY_PREALLOC_COUNT <= karma::KARMA_ABSOLUTE_CHANNEL_LIMIT,
+              "KARMA_POLY_PREALLOC_COUNT cannot exceed KARMA_ABSOLUTE_CHANNEL_LIMIT");
+
+// Validate architectural constraint (this should never change)
+static_assert(karma::KARMA_STRUCT_CHANNEL_COUNT == 4,
+              "KARMA_STRUCT_CHANNEL_COUNT must be 4 (matches o1prev/o2prev/o3prev/o4prev struct fields)");
 
 // =============================================================================
 // KARMA OBJECT STRUCT
@@ -398,28 +406,28 @@ static inline double kh_ease_switchramp(double y1, double snrfade, switchramp_ty
 {
     switch (snrtype)
     {
-        case SWITCHRAMP_LINEAR: 
+        case switchramp_type_t::LINEAR: 
             y1  = y1 * (1.0 - snrfade);
             break;
-        case SWITCHRAMP_SINE_IN: 
+        case switchramp_type_t::SINE_IN: 
             y1  = y1 * (1.0 - (sin((snrfade - 1) * PI/2) + 1));
             break;
-        case SWITCHRAMP_CUBIC_IN: 
+        case switchramp_type_t::CUBIC_IN: 
             y1  = y1 * (1.0 - (snrfade * snrfade * snrfade));
             break;
-        case SWITCHRAMP_CUBIC_OUT: 
+        case switchramp_type_t::CUBIC_OUT: 
             snrfade = snrfade - 1;
             y1  = y1 * (1.0 - (snrfade * snrfade * snrfade + 1));
             break;
-        case SWITCHRAMP_EXPO_IN: 
+        case switchramp_type_t::EXPO_IN: 
             snrfade = (snrfade == 0.0) ? snrfade : pow(2, (10 * (snrfade - 1)));
             y1  = y1 * (1.0 - snrfade);
             break;
-        case SWITCHRAMP_EXPO_OUT: 
+        case switchramp_type_t::EXPO_OUT: 
             snrfade = (snrfade == 1.0) ? snrfade : (1 - pow(2, (-10 * snrfade)));
             y1  = y1 * (1.0 - snrfade);
             break;
-        case SWITCHRAMP_EXPO_IN_OUT: 
+        case switchramp_type_t::EXPO_IN_OUT: 
             if ((snrfade > 0) && (snrfade < 0.5))
                 y1 = y1 * (1.0 - (0.5 * pow(2, ((20 * snrfade) - 10))));
             else if ((snrfade < 1) && (snrfade > 0.5))
@@ -695,9 +703,9 @@ static inline double kh_perform_playback_interpolation(
         return kh_linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
     } else {
         // Otherwise use specified interpolation type
-        if (interp == 1) {
+        if (interp == interp_type_t::CUBIC) {
             return kh_cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
-        } else if (interp == 2) {
+        } else if (interp == interp_type_t::SPLINE) {
             return kh_spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
         } else {
             return kh_linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
@@ -1253,16 +1261,16 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         x->speedfloat = 1.0;
         x->islooped = 1;
 
-        x->fade.snrtype = SWITCHRAMP_SINE_IN;
-        x->audio.interpflag = INTERP_CUBIC;
+        x->fade.snrtype = switchramp_type_t::SINE_IN;
+        x->audio.interpflag = interp_type_t::CUBIC;
         x->fade.playfadeflag = 0;
         x->fade.recfadeflag = 0;
         x->state.recordinit = 0;
         x->state.initinit = 0;
         x->state.append = 0;
         x->state.jumpflag = 0;
-        x->state.statecontrol = CONTROL_STATE_ZERO;
-        x->state.statehuman = HUMAN_STATE_STOP;
+        x->state.statecontrol = control_state_t::ZERO;
+        x->state.statehuman = human_state_t::STOP;
         x->state.stopallowed = 0;
         x->state.go = 0;
         x->state.triginit = 0;
@@ -1915,7 +1923,7 @@ void karma_clock_list(t_karma* x)
             datalist + 4,
             (directflag ? reverseend : forwardend) / bmsr);  // end float ms
         atom_setfloat(datalist + 5, (selectionsize / bmsr)); // window float ms
-        atom_setlong(datalist + 6, statehuman);              // state flag int
+        atom_setlong(datalist + 6, static_cast<long>(statehuman));  // state flag int
 
         outlet_list(x->messout, 0L, 7, datalist);
         //      outlet_list(x->messout, gensym("list"), 7, datalist);
@@ -2093,10 +2101,10 @@ void karma_stop(t_karma* x)
 {
     if (x->state.initinit) {
         if (x->state.stopallowed) {
-            x->state.statecontrol = x->state.alternateflag ? CONTROL_STATE_STOP_ALT
-                                                           : CONTROL_STATE_STOP_REGULAR;
+            x->state.statecontrol = x->state.alternateflag ? control_state_t::STOP_ALT
+                                                           : control_state_t::STOP_REGULAR;
             x->state.append = 0;
-            x->state.statehuman = HUMAN_STATE_STOP;
+            x->state.statehuman = human_state_t::STOP;
             x->state.stopallowed = 0;
         }
     }
@@ -2105,18 +2113,18 @@ void karma_stop(t_karma* x)
 void karma_play(t_karma* x)
 {
     if ((!x->state.go) && (x->state.append)) {
-        x->state.statecontrol = CONTROL_STATE_APPEND;
+        x->state.statecontrol = control_state_t::APPEND;
 
         x->fade.snrfade = 0.0; // !! should disable ??
     } else if ((x->state.record) || (x->state.append)) {
-        x->state.statecontrol = x->state.alternateflag ? CONTROL_STATE_PLAY_ALT
-                                                       : CONTROL_STATE_RECORD_OFF;
+        x->state.statecontrol = x->state.alternateflag ? control_state_t::PLAY_ALT
+                                                       : control_state_t::RECORD_OFF;
     } else {
-        x->state.statecontrol = CONTROL_STATE_PLAY_ON;
+        x->state.statecontrol = control_state_t::PLAY_ON;
     }
 
     x->state.go = 1;
-    x->state.statehuman = HUMAN_STATE_PLAY;
+    x->state.statehuman = human_state_t::PLAY;
     x->state.stopallowed = 1;
 }
 
@@ -2140,7 +2148,7 @@ t_bool _clear_buffer(t_buffer_obj* buf, long bframes, long rchans)
 void karma_record(t_karma* x)
 {
     t_buffer_obj*   buf = buffer_ref_getobject(x->buffer.buf);
-    control_state_t sc = CONTROL_STATE_ZERO;
+    control_state_t sc = control_state_t::ZERO;
     human_state_t   sh = x->state.statehuman;
     t_bool          record = x->state.record;
     t_bool          go = x->state.go;
@@ -2152,24 +2160,24 @@ void karma_record(t_karma* x)
 
     if (record) {
         if (altflag) {
-            sc = CONTROL_STATE_RECORD_ALT;
-            sh = HUMAN_STATE_OVERDUB;
+            sc = control_state_t::RECORD_ALT;
+            sh = human_state_t::OVERDUB;
         } else {
-            sc = CONTROL_STATE_RECORD_OFF;
-            sh = (sh == HUMAN_STATE_OVERDUB) ? HUMAN_STATE_PLAY : HUMAN_STATE_RECORD;
+            sc = control_state_t::RECORD_OFF;
+            sh = (sh == human_state_t::OVERDUB) ? human_state_t::PLAY : human_state_t::RECORD;
         }
     } else if (append) {
         if (go) {
             if (altflag) {
-                sc = CONTROL_STATE_RECORD_ALT;
-                sh = HUMAN_STATE_OVERDUB;
+                sc = control_state_t::RECORD_ALT;
+                sh = human_state_t::OVERDUB;
             } else {
-                sc = CONTROL_STATE_APPEND_SPECIAL;
-                sh = HUMAN_STATE_APPEND;
+                sc = control_state_t::APPEND_SPECIAL;
+                sh = human_state_t::APPEND;
             }
         } else {
-            sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
-            sh = HUMAN_STATE_INITIAL;
+            sc = control_state_t::RECORD_INITIAL_LOOP;
+            sh = human_state_t::INITIAL;
         }
     } else if (!go) {
         init = 1;
@@ -2178,11 +2186,11 @@ void karma_record(t_karma* x)
             long bframes = x->buffer.bframes;
             _clear_buffer(buf, bframes, rchans);
         }
-        sc = CONTROL_STATE_RECORD_INITIAL_LOOP;
-        sh = HUMAN_STATE_INITIAL;
+        sc = control_state_t::RECORD_INITIAL_LOOP;
+        sh = human_state_t::INITIAL;
     } else {
-        sc = CONTROL_STATE_RECORD_ON;
-        sh = HUMAN_STATE_OVERDUB;
+        sc = control_state_t::RECORD_ON;
+        sh = human_state_t::OVERDUB;
     }
 
     x->state.go = 1;
@@ -2198,8 +2206,8 @@ void karma_append(t_karma* x)
         if ((!x->state.append) && (!x->state.loopdetermine)) {
             x->state.append = 1;
             x->loop.maxloop = (x->buffer.bframes - 1);
-            x->state.statecontrol = CONTROL_STATE_APPEND;
-            x->state.statehuman = HUMAN_STATE_APPEND;
+            x->state.statecontrol = control_state_t::APPEND;
+            x->state.statehuman = human_state_t::APPEND;
             x->state.stopallowed = 1;
         } else {
             object_error(
@@ -2225,13 +2233,13 @@ void karma_jump(t_karma* x, double jumpposition)
 {
     if (x->state.initinit) {
         if (!((x->state.loopdetermine) && (!x->state.record))) {
-            x->state.statecontrol = CONTROL_STATE_JUMP;
+            x->state.statecontrol = control_state_t::JUMP;
             x->timing.jumphead = CLAMP(
                 jumpposition, 0.,
                 1.); // Phase-based positioning (0.0 = start, 1.0 = end of loop)
                      // FUTURE ENHANCEMENT: Could support time-based positioning
                      // by converting ms/samples to phase using current loop length
-            //          x->state.statehuman = HUMAN_STATE_PLAY;           // no -
+            //          x->state.statehuman = human_state_t::PLAY;           // no -
             //          'jump' is whatever 'statehuman' currently is (most
             //          likely 'play')
             x->state.stopallowed = 1;
@@ -2377,74 +2385,74 @@ void kh_process_state_control(
     switch (*statecontrol) // "all-in-one 'switch' statement to catch and handle
                            // all(most) messages" - raja
     {
-    case CONTROL_STATE_ZERO:
+    case control_state_t::ZERO:
         break;
-    case CONTROL_STATE_RECORD_INITIAL_LOOP:
+    case control_state_t::RECORD_INITIAL_LOOP:
         *record = *go = *triginit = *loopdetermine = 1;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         *recordfade = *recfadeflag = *playfade = *playfadeflag = 0;
         break;
-    case CONTROL_STATE_RECORD_ALT:
+    case control_state_t::RECORD_ALT:
         *recendmark = 3;
         *record = *recfadeflag = *playfadeflag = 1;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         *playfade = *recordfade = 0;
         break;
-    case CONTROL_STATE_RECORD_OFF:
+    case control_state_t::RECORD_OFF:
         *recfadeflag = 1;
         *playfadeflag = 3;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         *playfade = *recordfade = 0;
         break;
-    case CONTROL_STATE_PLAY_ALT:
+    case control_state_t::PLAY_ALT:
         *recendmark = 2;
         *recfadeflag = *playfadeflag = 1;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         *playfade = *recordfade = 0;
         break;
-    case CONTROL_STATE_PLAY_ON:
+    case control_state_t::PLAY_ON:
         *triginit = 1; // ?!?!
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         break;
-    case CONTROL_STATE_STOP_ALT:
+    case control_state_t::STOP_ALT:
         *playfade = *recordfade = 0;
         *recendmark = *playfadeflag = *recfadeflag = 1;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         break;
-    case CONTROL_STATE_STOP_REGULAR:
+    case control_state_t::STOP_REGULAR:
         if (*record) {
             *recordfade = 0;
             *recfadeflag = 1;
         }
         *playfade = 0;
         *playfadeflag = 1;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         break;
-    case CONTROL_STATE_JUMP:
+    case control_state_t::JUMP:
         if (*record) {
             *recordfade = 0;
             *recfadeflag = 2;
         }
         *playfade = 0;
         *playfadeflag = 2;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         break;
-    case CONTROL_STATE_APPEND:
+    case control_state_t::APPEND:
         *playfadeflag = 4; // !! modified in perform loop switch case(s) for
                            // playing behind append
         *playfade = 0;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         break;
-    case CONTROL_STATE_APPEND_SPECIAL:
+    case control_state_t::APPEND_SPECIAL:
         *record = *loopdetermine = *alternateflag = 1;
         *snrfade = 0.0;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         *recordfade = *recfadeflag = 0;
         break;
-    case CONTROL_STATE_RECORD_ON:
+    case control_state_t::RECORD_ON:
         *playfadeflag = 3;
         *recfadeflag = 5;
-        *statecontrol = CONTROL_STATE_ZERO;
+        *statecontrol = control_state_t::ZERO;
         *recordfade = *playfade = 0;
         break;
     }
