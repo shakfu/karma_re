@@ -226,6 +226,7 @@ struct t_karma {
 #include "recording_dsp.hpp"
 #include "perform_utils.hpp"
 #include "state_control.hpp"
+#include "initial_loop.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -3235,203 +3236,15 @@ static inline void kh_process_initial_loop_ipoke_recording(
     double* pokesteps, double* writeval1, char direction, char directionorig,
     long maxhead, long frames)
 {
-    long   i;
-    double recplaydif, coeff1;
-
-    if (*recordhead < 0) {
-        *recordhead = playhead;
-        *pokesteps = 0.0;
-    }
-
-    if (*recordhead == playhead) {
-        *writeval1 += recin1;
-        *pokesteps += 1.0;
-    } else {
-        if (*pokesteps > 1.0) { // linear-averaging for speed < 1x
-            *writeval1 = *writeval1 / *pokesteps;
-            *pokesteps = 1.0;
-        }
-        b[*recordhead * pchans] = *writeval1;
-        recplaydif = (double)(playhead - *recordhead); // linear-interp for speed > 1x
-
-        if (direction != directionorig) {
-            if (directionorig >= 0) {
-                if (recplaydif > 0) {
-                    if (recplaydif > (maxhead * 0.5)) {
-                        recplaydif -= maxhead;
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i >= 0; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                        kh_apply_ipoke_interpolation(
-                            b, pchans, maxhead, playhead, writeval1, coeff1, -1);
-                    } else {
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                    }
-                } else {
-                    if ((-recplaydif) > (maxhead * 0.5)) {
-                        recplaydif += maxhead;
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < (maxhead + 1); i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                        for (i = 0; i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                    } else {
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                    }
-                }
-            } else {
-                if (recplaydif > 0) {
-                    if (recplaydif > (((frames - 1) - (maxhead)) * 0.5)) {
-                        recplaydif -= ((frames - 1) - (maxhead));
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i >= maxhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                        for (i = (frames - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                    } else {
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < playhead; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                    }
-                } else {
-                    if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5)) {
-                        recplaydif += ((frames - 1) - (maxhead));
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead + 1); i < frames; i++) {
-                            *writeval1 += coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                        kh_apply_ipoke_interpolation(
-                            b, pchans, maxhead, playhead, writeval1, coeff1, 1);
-                    } else {
-                        coeff1 = (recin1 - *writeval1) / recplaydif;
-                        for (i = (*recordhead - 1); i > playhead; i--) {
-                            *writeval1 -= coeff1;
-                            b[i * pchans] = *writeval1;
-                        }
-                    }
-                }
-            }
-        } else {
-            if (recplaydif > 0) {
-                coeff1 = (recin1 - *writeval1) / recplaydif;
-                for (i = (*recordhead + 1); i < playhead; i++) {
-                    *writeval1 += coeff1;
-                    b[i * pchans] = *writeval1;
-                }
-            } else {
-                coeff1 = (recin1 - *writeval1) / recplaydif;
-                for (i = (*recordhead - 1); i > playhead; i--) {
-                    *writeval1 -= coeff1;
-                    b[i * pchans] = *writeval1;
-                }
-            }
-        }
-        *writeval1 = recin1;
-    }
+    karma::process_initial_loop_ipoke_recording(
+        b, pchans, recordhead, playhead, recin1, pokesteps, writeval1,
+        direction, directionorig, maxhead, frames);
 }
 
 static inline void kh_process_initial_loop_boundary_constraints(
     t_karma* x, float* b, double* accuratehead, double speed, char direction)
 {
-    long   setloopsize;
-    double speedsrscaled;
-
-    setloopsize = x->loop.maxloop
-        - x->loop.minloop; // not really required here because initial loop ??
-    speedsrscaled = speed * x->timing.srscale;
-    if (x->state.record) // speed limiting during record
-        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / KARMA_SPEED_LIMIT_DIVISOR))
-            ? ((setloopsize / KARMA_SPEED_LIMIT_DIVISOR) * direction)
-            : speedsrscaled;
-    *accuratehead = *accuratehead + speedsrscaled;
-
-    if (direction
-        == x->state.directionorig) { // buffer~ boundary constraints and registry of
-                                     // maximum distance traversed
-        if (*accuratehead > (x->buffer.bframes - 1)) {
-            *accuratehead = 0.0;
-            x->state.record = x->state.append;
-            if (x->state.record) {
-                if (x->fade.globalramp) {
-                    kh_ease_bufoff(
-                        x->buffer.bframes - 1, b, x->buffer.nchans,
-                        (x->buffer.bframes - 1), -direction,
-                        x->fade.globalramp); // maxloop ??
-                    x->timing.recordhead = -1;
-                    x->fade.recfadeflag = x->fade.recordfade = 0;
-                }
-            }
-            x->state.recendmark = x->state.triginit = 1;
-            x->state.loopdetermine = x->state.alternateflag = 0;
-            x->timing.maxhead = x->buffer.bframes - 1;
-        } else if (*accuratehead < 0.0) {
-            *accuratehead = x->buffer.bframes - 1;
-            x->state.record = x->state.append;
-            if (x->state.record) {
-                if (x->fade.globalramp) {
-                    kh_ease_bufoff(
-                        x->buffer.bframes - 1, b, x->buffer.nchans, x->loop.minloop,
-                        -direction,
-                        x->fade.globalramp); // 0.0  // ??
-                    x->timing.recordhead = -1;
-                    x->fade.recfadeflag = x->fade.recordfade = 0;
-                }
-            }
-            x->state.recendmark = x->state.triginit = 1;
-            x->state.loopdetermine = x->state.alternateflag = 0;
-            x->timing.maxhead = 0.0;
-        } else { // <- track max write position
-            if (((x->state.directionorig >= 0) && (x->timing.maxhead < *accuratehead))
-                || ((x->state.directionorig < 0)
-                    && (x->timing.maxhead > *accuratehead))) {
-                x->timing.maxhead = *accuratehead;
-            }
-        }
-    } else if (direction < 0) { // wraparounds for reversal while creating initial-loop
-        if (*accuratehead < 0.0) {
-            *accuratehead = x->timing.maxhead + *accuratehead;
-            if (x->fade.globalramp) {
-                kh_ease_bufoff(
-                    x->buffer.bframes - 1, b, x->buffer.nchans, x->loop.minloop,
-                    -direction, x->fade.globalramp); // 0.0  // ??
-                x->timing.recordhead = -1;
-                x->fade.recfadeflag = x->fade.recordfade = 0;
-            }
-        }
-    } else if (direction >= 0) {
-        if (*accuratehead > (x->buffer.bframes - 1)) {
-            *accuratehead = x->timing.maxhead + (*accuratehead - (x->buffer.bframes - 1));
-            if (x->fade.globalramp) {
-                kh_ease_bufoff(
-                    x->buffer.bframes - 1, b, x->buffer.nchans, (x->buffer.bframes - 1),
-                    -direction,
-                    x->fade.globalramp); // maxloop ??
-                x->timing.recordhead = -1;
-                x->fade.recfadeflag = x->fade.recordfade = 0;
-            }
-        }
-    }
+    karma::process_initial_loop_boundary_constraints(x, b, accuratehead, speed, direction);
 }
 
 // ============================== Stereo Helper Functions
