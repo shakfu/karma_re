@@ -232,6 +232,7 @@ struct t_karma {
 #include "message_handlers.hpp"
 #include "buffer_management.hpp"
 #include "selection_handlers.hpp"
+#include "object_initialization.hpp"
 
 static t_symbol *ps_nothing;
 static t_symbol *ps_dummy;
@@ -715,128 +716,32 @@ void ext_main(void *r)
 void* karma_new(t_symbol* s, short argc, t_atom* argv)
 {
     t_karma*  x;
-    t_symbol* bufname = 0;
+    t_symbol* bufname = nullptr;
     long      syncoutlet = 0;
     long      chans = 0;
-    long      attrstart = attr_args_offset(argc, argv);
+    long      attrstart = 0;
 
     x = (t_karma*)object_alloc(karma_class);
     x->state.initskip = 0;
 
-    // should do better argument checks here
-    if (attrstart && argv) {
-        bufname = atom_getsym(argv + 0);
-        // @arg 0 @name buffer_name @optional 0 @type symbol @digest Name of
-        // <o>buffer~</o> to be associated with the <o>karma~</o> instance
-        // @description Essential argument: <o>karma~</o> will not operate
-        // without an associated <o>buffer~</o> <br /> The associated
-        // <o>buffer~</o> determines memory and length (if associating a buffer~
-        // of <b>0 ms</b> in size <o>karma~</o> will do nothing) <br /> The
-        // associated <o>buffer~</o> can be changed on the fly (see the
-        // <m>set</m> message) but one must be present on instantiation <br />
-        if (attrstart > 1) {
-            chans = atom_getlong(argv + 1);
-            if (attrstart > 2) {
-                // object_error((t_object *)x, "rodrigo! third arg no longer
-                // used! use new @syncout attribute instead!");
-                object_warn(
-                    (t_object*)x,
-                    "too many arguments to karma~, ignoring additional crap");
-            }
-        }
-    /*  } else {
-            object_error((t_object *)x, "karma~ will not load without an
-       associated buffer~ declaration"); goto zero;
-    */  }
+    // Parse instantiation arguments
+    karma::parse_instantiation_args(argc, argv, &bufname, &chans, &attrstart, x);
 
     if (x) {
-        if (chans <= 1) {
-            // one audio channel inlet, one signal speed inlet
-            dsp_setup((t_pxobject*)x, 2);
-            chans = 1;
-        } else if (chans == 2) {
-            // two audio channel inlets, one signal speed inlet
-            dsp_setup((t_pxobject*)x, 3);
-            chans = 2;
-        } else {
-            // four audio channel inlets, one signal speed inlet
-            dsp_setup((t_pxobject*)x, 5);
-            chans = 4;
-        }
+        // Setup DSP inlets
+        karma::setup_dsp_inlets(x, &chans);
 
-        // Allocate multichannel processing arrays for maximum expected channels
-        // Calculate channel allocation count (clamp to limits)
-        long requested_chans = chans;
-        long poly_maxchans = (chans > KARMA_STRUCT_CHANNEL_COUNT) ?
-                             ((chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) ? KARMA_ABSOLUTE_CHANNEL_LIMIT : chans) :
-                             KARMA_POLY_PREALLOC_COUNT;
-
-        // Warn if we had to clamp the channel count
-        if (chans > KARMA_ABSOLUTE_CHANNEL_LIMIT) {
-            object_warn((t_object*)x, "Requested %ld channels, but maximum configured is %d. Using %d channels.",
-                       requested_chans, KARMA_ABSOLUTE_CHANNEL_LIMIT, KARMA_ABSOLUTE_CHANNEL_LIMIT);
-        }
-
-        // Allocate multichannel processing arrays using RAII wrapper
-        x->poly_arrays = new (std::nothrow) karma::PolyArrays(poly_maxchans);
-        if (!x->poly_arrays || !x->poly_arrays->is_valid()) {
-            object_error((t_object*)x, "Failed to allocate memory for multichannel processing arrays");
-            delete x->poly_arrays;
-            x->poly_arrays = nullptr;
+        // Allocate multichannel processing arrays
+        if (!karma::allocate_poly_arrays(x, chans)) {
             object_free((t_object*)x);
             return NULL;
         }
 
-        x->input_channels = chans;  // Initialize input channel count
+        // Initialize object state
+        karma::initialize_object_state(x);
 
-        x->timing.recordhead = -1;
-        x->reportlist = KARMA_DEFAULT_REPORT_TIME_MS;                          // ms
-        x->fade.snrramp = x->fade.globalramp = KARMA_DEFAULT_FADE_SAMPLES;  // samps...
-        x->fade.playfade = x->fade.recordfade = KARMA_DEFAULT_FADE_SAMPLES_PLUS_ONE; // ...
-        x->timing.ssr = sys_getsr();
-        x->timing.vs = sys_getblksize();
-        x->timing.vsnorm = x->timing.vs / x->timing.ssr;
-
-        x->audio.overdubprev = 1.0;
-        x->audio.overdubamp = 1.0;
-        x->speedfloat = 1.0;
-        x->islooped = 1;
-
-        x->fade.snrtype = switchramp_type_t::SINE_IN;
-        x->audio.interpflag = interp_type_t::CUBIC;
-        x->fade.playfadeflag = 0;
-        x->fade.recfadeflag = 0;
-        x->state.recordinit = 0;
-        x->state.initinit = 0;
-        x->state.append = 0;
-        x->state.jumpflag = 0;
-        x->state.statecontrol = control_state_t::ZERO;
-        x->state.statehuman = human_state_t::STOP;
-        x->state.stopallowed = 0;
-        x->state.go = 0;
-        x->state.triginit = 0;
-        x->state.directionprev = 0;
-        x->state.directionorig = 0;
-        x->state.recordprev = 0;
-        x->state.record = 0;
-        x->state.alternateflag = 0;
-        x->state.recendmark = 0;
-        x->audio.pokesteps = 0;
-        x->state.wrapflag = 0;
-        x->state.loopdetermine = 0;
-        x->audio.writeval1 = x->audio.writeval2 = x->audio.writeval3 = x->audio.writeval4
-            = 0;
-        x->timing.maxhead = 0.0;
-        x->timing.playhead = 0.0;
-        x->loop.initiallow = -1;
-        x->loop.initialhigh = -1;
-        x->timing.selstart = 0.0;
-        x->timing.jumphead = 0.0;
-        x->fade.snrfade = 0.0;
-        x->audio.o1dif = x->audio.o2dif = x->audio.o3dif = x->audio.o4dif = 0.0;
-        x->audio.o1prev = x->audio.o2prev = x->audio.o3prev = x->audio.o4prev = 0.0;
-
-        if (bufname != 0)
+        // Set buffer name
+        if (bufname != nullptr)
             x->buffer.bufname = bufname; // !! setup is in 'karma_buf_setup()' called
                                          // by 'karma_dsp64()'...
         /*      else                        // ...(this means double-clicking
@@ -856,49 +761,23 @@ void* karma_new(t_symbol* s, short argc, t_atom* argv)
         // <o>karma~</o> will operate in quad mode with four inputs for
         // recording and four outputs for playback <br />
 
-        x->messout = listout(x); // data
-        if (!x->messout) {
-            object_error((t_object*)x, "Failed to create list outlet");
+        // Create outlets and clock
+        if (!karma::create_outlets_and_clock(x)) {
             delete x->poly_arrays;
             x->poly_arrays = nullptr;
             object_free((t_object*)x);
             return NULL;
         }
 
-        x->tclock = clock_new((t_object*)x, (method)karma_clock_list);
-        if (!x->tclock) {
-            object_error((t_object*)x, "Failed to create clock");
-            object_free(x->messout);
-            delete x->poly_arrays;
-            x->poly_arrays = nullptr;
-            object_free((t_object*)x);
-            return NULL;
-        }
-
+        // Process attributes
         attr_args_process(x, argc, argv);
         syncoutlet = x->syncoutlet; // pre-init
 
-        if (chans <= 1) { // mono
-            if (syncoutlet)
-                outlet_new(x, "signal"); // last: sync (optional)
-            outlet_new(x, "signal");     // first: audio output
-        } else if (chans == 2) {         // stereo
-            if (syncoutlet)
-                outlet_new(x, "signal"); // last: sync (optional)
-            outlet_new(x, "signal");     // second: audio output 2
-            outlet_new(x, "signal");     // first: audio output 1
-        } else {                         // multichannel (4+)
-            if (syncoutlet)
-                outlet_new(x, "signal"); // last: sync (optional)
-            outlet_new(x, "multichannelsignal"); // multichannel audio output
-        }
+        // Create signal outlets
+        karma::create_signal_outlets(x, chans, syncoutlet);
 
-        x->state.initskip = 1;
-        x->k_ob.z_misc |= Z_NO_INPLACE;
-
-        // Enable multichannel inlet support for all channel counts
-        // This allows the object to receive both single and multichannel patch cords
-        x->k_ob.z_misc |= Z_MC_INLETS;
+        // Finalize object setup
+        karma::finalize_object_setup(x);
     }
 
     // zero:
