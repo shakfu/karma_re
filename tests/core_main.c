@@ -34,10 +34,19 @@ static t_karma *construct(long frames, long chans, double sr)
     return x;
 }
 
+static void perform(t_karma *x, double **ins, long nins, double **outs, long nouts, long vcount)
+{
+    switch (x->ochans) {
+        case 1:  karma_mono_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL);   break;
+        case 2:  karma_stereo_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL); break;
+        default: karma_quad_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL);   break;
+    }
+}
+
 int main(void)
 {
     printf("=== karma_core ===\n");
-    run_all_scenarios(construct, "core");
+    run_all_scenarios(construct, perform, "core", 4);
     printf("OK\n");
     return 0;
 }

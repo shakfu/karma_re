@@ -30,27 +30,30 @@ objective confirmation of the overdub corruption.
 
 ## karma_core (Max-free)
 
-`karma_core.{h,c}` is the DSP extracted out of Max. `karma_core.c` is **generated**
-from the reference by `gen_core.sh`: it copies the DSP helpers, control methods,
-and mono perform verbatim, then rewrites the Max dependencies -- buffer~ access
-becomes a host callback interface (`karma_buffer_iface`), and the list-outlet/
-clock UI plumbing is elided. Field names and float math are unchanged, so it is
-behaviourally identical to the reference.
+The extracted DSP library lives in `../source/projects/karma_core/`
+(`karma_core.{h,c}` + `gen_core.sh`). `karma_core.c` is **generated** from the
+reference by `gen_core.sh`: it copies the DSP helpers, control methods, and the
+mono/stereo/quad perform routines verbatim, then rewrites the Max dependencies --
+buffer~ access becomes a host callback interface (`karma_buffer_iface`), and the
+list-outlet/clock UI plumbing is elided. Field names and float math are
+unchanged, so it is behaviourally identical to the reference.
 
-`make` builds the core driver and confirms it: **the mono path currently matches
-the reference sample-for-sample (output + buffer) across every scenario.**
+`make` builds the core driver against that library and confirms it: **mono,
+stereo, and quad all match the reference sample-for-sample (output + buffer)
+across every scenario**, including the multichannel overdub-boundary cases.
 
-To re-extract after touching the reference: `./gen_core.sh && make`.
+To re-extract after touching the reference:
+`(cd ../source/projects/karma_core && ./gen_core.sh) && make`.
 
 ## Roadmap
 
 1. [done] Drive the reference DSP offline (feasibility spike).
 2. [done] Scenario library + golden capture + reference/k4 differential.
-3. [in progress] Extract `karma_core` (Max-free), diffed to zero against the
-   reference. **Mono done.** Remaining: stereo + quad perform.
+3. [done] Extract `karma_core` (Max-free), diffed to zero against the reference.
+   **Mono + stereo + quad all match.**
 4. Harness: drive variable speed/jump directly (currently `reverse`/`speed_half`
    run as forward playback since karma_float's inlet gate is off offline), add
-   stereo + append + jump scenarios.
+   append + jump scenarios.
 5. Unit tests for the pure pieces (interpolators, ipoke, wrap/boundary math).
 6. Re-host in Max as a thin shell over `karma_core`.
 

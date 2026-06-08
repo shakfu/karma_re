@@ -3,7 +3,7 @@
 # applying the Max -> core transforms. Re-run after touching the reference.
 set -e
 cd "$(dirname "$0")"
-REF=../source/projects/karma_tilde/karma~.c
+REF=../karma_tilde/karma~.c
 OUT=karma_core.c
 RAW=$(mktemp)
 
@@ -24,6 +24,10 @@ extract(){ awk -v s="$1" 'NR>=s{print} NR>=s && /^}/{exit}' "$REF"; }
   for L in 1427 1492 1533 1572 1584 1600 1707 1724 1743; do extract "$L"; echo; done
   echo '// ---- mono perform (verbatim) ----'
   extract 1842
+  echo '// ---- stereo perform (verbatim) ----'
+  extract 2914
+  echo '// ---- quad perform (verbatim) ----'
+  extract 4916
 } > "$RAW"
 
 # Max -> core transforms: buffer access via the host iface; drop the

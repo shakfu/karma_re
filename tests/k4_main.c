@@ -38,10 +38,19 @@ static t_karma *construct(long frames, long chans, double sr)
     return x;
 }
 
+static void perform(t_karma *x, double **ins, long nins, double **outs, long nouts, long vcount)
+{
+    switch (x->buffer.ochans) {
+        case 1:  karma_mono_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL);   break;
+        default: karma_stereo_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL); break;
+    }
+}
+
 int main(void)
 {
     printf("=== k4 candidate ===\n");
-    run_all_scenarios(construct, "k4");
+    // k4's >2ch path is MC 'poly' with different I/O; restrict offline diff to mono+stereo.
+    run_all_scenarios(construct, perform, "k4", 2);
     printf("OK\n");
     return 0;
 }

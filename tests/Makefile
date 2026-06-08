@@ -10,6 +10,7 @@ MSPINC    := $(SDK)/msp-includes
 HBINC     := $(shell brew --prefix)/include
 REFDIR    := $(ROOT)/source/projects/karma_tilde
 K4DIR     := $(ROOT)/source/projects/k4_tilde
+COREDIR   := $(ROOT)/source/projects/karma_core
 
 INCLUDES  := -I$(MAXINC) -I$(MSPINC) -I$(HBINC) -I.
 CFLAGS    := -g -O2 -Wall -Wno-cast-function-type-mismatch
@@ -45,8 +46,8 @@ k4:     $(BUILD)/k4     ; @cd $(BUILD) && ./k4
 $(BUILD)/oracle: oracle_main.c max_stub.c max_stub.h scenarios.h | $(BUILD)
 	@clang $(CFLAGS) $(INCLUDES) -I$(REFDIR) oracle_main.c max_stub.c $(LDFLAGS) -o $@
 
-$(BUILD)/core: core_main.c karma_core.c karma_core.h max_stub.c max_stub.h scenarios.h | $(BUILD)
-	@clang $(CFLAGS) $(INCLUDES) core_main.c karma_core.c max_stub.c $(LDFLAGS) -o $@
+$(BUILD)/core: core_main.c $(COREDIR)/karma_core.c $(COREDIR)/karma_core.h max_stub.c max_stub.h scenarios.h | $(BUILD)
+	@clang $(CFLAGS) $(INCLUDES) -I$(COREDIR) core_main.c $(COREDIR)/karma_core.c max_stub.c $(LDFLAGS) -o $@
 
 $(BUILD)/k4: k4_main.c max_stub.c max_stub.h scenarios.h | $(BUILD)
 	@clang $(CFLAGS) $(INCLUDES) -I$(K4DIR) k4_main.c max_stub.c $(LDFLAGS) -o $@
