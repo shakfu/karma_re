@@ -73,4 +73,10 @@ guards no-regression) and add unit tests for the feature-active paths.
   clock block is inert (no-op shims). When modularizing, just delete the core's
   clock block rather than leaving the dead toggle.
 - `tests/README.md` documents the harness; `source/projects/karma_core/README.md`
-  documents the library.
+  documents the library
+
+## Checkout karma2 ideas:
+
+see: <https://github.com/rconstanzo/karma2>
+
+.
