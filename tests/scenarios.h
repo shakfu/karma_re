@@ -81,11 +81,15 @@ static void run_scenario(t_karma *x, const scenario *sc, perform_fn perform, FIL
 
     double phase[SCN_MAXCHANS] = {0};
     const double dphase = (sc->in_freq > 0) ? (2.0 * M_PI * sc->in_freq / sc->sr) : 0.0;
+    double cur_speed = 1.0;   // playback/record speed, driven via the speed signal inlet
 
     int ei = 0;
     for (long base = 0; base < sc->total; base += SCN_VS) {
-        while (ei < sc->nevents && sc->events[ei].at <= base)
-            scn_fire(x, &sc->events[ei++]);
+        while (ei < sc->nevents && sc->events[ei].at <= base) {
+            const sc_event *e = &sc->events[ei++];
+            if (e->op == OP_FLOAT) cur_speed = e->arg;  // speed is a signal here, not a float msg
+            else scn_fire(x, e);
+        }
 
         for (int i = 0; i < SCN_VS; i++) {
             for (long c = 0; c < chans; c++) {
@@ -93,7 +97,7 @@ static void run_scenario(t_karma *x, const scenario *sc, perform_fn perform, FIL
                 phase[c] += dphase * (double)(c + 1);   // distinct content per channel
                 out_audio[c][i] = 0.0;
             }
-            in_speed[i] = 1.0;
+            in_speed[i] = cur_speed;
         }
 
         perform(x, ins, nins, outs, nouts, SCN_VS);
@@ -141,6 +145,42 @@ static const sc_event ev_speed_half[] = {
     { 12288, OP_FLOAT, 0.5 },
 };
 
+static const sc_event ev_speed_double[] = {
+    { 0,     OP_REC,   0   },
+    { 8192,  OP_PLAY,  0   },
+    { 12288, OP_FLOAT, 2.0 },
+};
+
+// speed sweep: forward 1x, faster, reverse, slow -- exercises direction flips
+static const sc_event ev_speed_sweep[] = {
+    { 0,     OP_REC,   0    },
+    { 8192,  OP_PLAY,  0    },
+    { 12288, OP_FLOAT, 1.5  },
+    { 20480, OP_FLOAT, -1.0 },
+    { 28672, OP_FLOAT, 0.25 },
+};
+
+static const sc_event ev_jump[] = {
+    { 0,     OP_REC,  0   },
+    { 8192,  OP_PLAY, 0   },
+    { 12288, OP_JUMP, 0.5 },
+    { 18432, OP_JUMP, 0.0 },
+};
+
+static const sc_event ev_stop[] = {
+    { 0,     OP_REC,  0 },
+    { 8192,  OP_PLAY, 0 },
+    { 16384, OP_STOP, 0 },
+};
+
+// play a sub-window of the loop (middle half), set after the loop is established
+static const sc_event ev_window[] = {
+    { 0,     OP_REC,      0    },
+    { 8192,  OP_PLAY,     0    },
+    { 12288, OP_SELSTART, 0.25 },
+    { 12288, OP_SELSIZE,  0.5  },
+};
+
 static const scenario g_scenarios[] = {
     { "rec_play",             16384, 1, 48000.0, 220.0, 0.25, 24576, ev_rec_play,         2 },
     { "rec_play_st",          16384, 2, 48000.0, 220.0, 0.25, 24576, ev_rec_play,         2 },
@@ -149,7 +189,14 @@ static const scenario g_scenarios[] = {
     { "overdub_boundary_st",  16384, 2, 48000.0, 220.0, 0.25, 49152, ev_overdub_boundary, 5 },
     { "overdub_boundary_quad",16384, 4, 48000.0, 220.0, 0.25, 49152, ev_overdub_boundary, 5 },
     { "reverse",              16384, 1, 48000.0, 220.0, 0.25, 32768, ev_reverse,          3 },
+    { "reverse_st",           16384, 2, 48000.0, 220.0, 0.25, 32768, ev_reverse,          3 },
     { "speed_half",           16384, 1, 48000.0, 220.0, 0.25, 32768, ev_speed_half,       3 },
+    { "speed_double",         16384, 1, 48000.0, 220.0, 0.25, 32768, ev_speed_double,     3 },
+    { "speed_sweep",          16384, 1, 48000.0, 220.0, 0.25, 40960, ev_speed_sweep,      5 },
+    { "speed_sweep_quad",     16384, 4, 48000.0, 220.0, 0.25, 40960, ev_speed_sweep,      5 },
+    { "jump",                 16384, 1, 48000.0, 220.0, 0.25, 24576, ev_jump,             4 },
+    { "stop",                 16384, 1, 48000.0, 220.0, 0.25, 24576, ev_stop,             3 },
+    { "window",               16384, 1, 48000.0, 220.0, 0.25, 32768, ev_window,           4 },
 };
 #define N_SCENARIOS ((int)(sizeof(g_scenarios)/sizeof(g_scenarios[0])))
 

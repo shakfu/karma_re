@@ -29,8 +29,9 @@ static t_karma *construct(long frames, long chans, double sr)
     x->bufio.sr        = sr;
     karma_core_set_dims(x);
 
-    x->speedconnect = 0;
+    x->speedconnect = 1;     // speed driven via the signal inlet (in_speed)
     x->speedfloat   = 1.0;
+    x->initinit     = 1;     // DSP "on" -- enables jump/stop control methods
     return x;
 }
 

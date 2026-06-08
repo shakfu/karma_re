@@ -17,8 +17,11 @@ CFLAGS    := -g -O2 -Wall -Wno-cast-function-type-mismatch
 LDFLAGS   := -lm
 BUILD     := build
 
-.PHONY: all diff core k4diff oracle k4 difftool clean
-all: diff
+.PHONY: all check diff unit core k4diff oracle k4 difftool clean
+all: check
+
+# Full check: extraction equivalence + kernel unit tests.
+check: diff unit
 
 # Primary check: extracted core must match the reference sample-for-sample.
 diff: $(BUILD)/oracle $(BUILD)/core $(BUILD)/difftool
@@ -39,9 +42,16 @@ k4diff: $(BUILD)/oracle $(BUILD)/k4 $(BUILD)/difftool
 	  echo "[$$n]"; ./difftool ref_$$n.bin k4_$$n.bin || true; \
 	done
 
+# Kernel unit tests (pure interp / ease / ipoke / wrap math).
+unit: $(BUILD)/unit
+	@echo "=== kernel unit tests ==="; cd $(BUILD) && ./unit
+
 oracle: $(BUILD)/oracle ; @cd $(BUILD) && ./oracle
 core:   $(BUILD)/core   ; @cd $(BUILD) && ./core
 k4:     $(BUILD)/k4     ; @cd $(BUILD) && ./k4
+
+$(BUILD)/unit: unit_kernels.c $(COREDIR)/karma_core.c $(COREDIR)/karma_core.h | $(BUILD)
+	@clang $(CFLAGS) $(INCLUDES) -I$(COREDIR) unit_kernels.c $(LDFLAGS) -o $@
 
 $(BUILD)/oracle: oracle_main.c max_stub.c max_stub.h scenarios.h | $(BUILD)
 	@clang $(CFLAGS) $(INCLUDES) -I$(REFDIR) oracle_main.c max_stub.c $(LDFLAGS) -o $@

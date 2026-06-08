@@ -33,8 +33,9 @@ static t_karma *construct(long frames, long chans, double sr)
     x->vs     = SCN_VS;
     x->vsnorm = x->vs / x->ssr;
     karma_buf_setup(x, gensym("mockbuf"));
-    x->speedconnect = 0;
+    x->speedconnect = 1;     // speed driven via the signal inlet (in_speed)
     x->speedfloat   = 1.0;
+    x->initinit     = 1;     // DSP "on" -- enables jump/stop control methods
     return x;
 }
 

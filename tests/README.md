@@ -51,18 +51,24 @@ To re-extract after touching the reference:
 2. [done] Scenario library + golden capture + reference/k4 differential.
 3. [done] Extract `karma_core` (Max-free), diffed to zero against the reference.
    **Mono + stereo + quad all match.**
-4. Harness: drive variable speed/jump directly (currently `reverse`/`speed_half`
-   run as forward playback since karma_float's inlet gate is off offline), add
-   append + jump scenarios.
-5. Unit tests for the pure pieces (interpolators, ipoke, wrap/boundary math).
+4. [done] Harden the harness: speed is now driven through the speed *signal*
+   inlet (real variable speed + direction flips), `initinit` is enabled so
+   jump/stop work, and the catalogue covers record/play/overdub-at-boundary,
+   reverse, speed half/double/sweep, jump, stop, and a selection window across
+   mono/stereo/quad (15 scenarios). All match the reference sample-for-sample.
+5. [done] Kernel unit tests (`unit_kernels.c`): interpolation macros, ease/fade
+   functions, ipoke buffer-fade, and interp-index wrap math, checked against
+   hand-computed values (`make unit`).
 6. Re-host in Max as a thin shell over `karma_core`.
 
 ## Build
 
 ```
-make            # build both drivers, run all scenarios, diff ref vs k4
-make oracle     # just run the reference driver
-make k4         # just run the candidate driver
+make            # full check: extraction diff (ref vs core) + kernel unit tests
+make diff       # just the ref-vs-core sample-exact differential
+make unit       # just the kernel unit tests
+make k4diff     # characterise how far k4 diverges from the reference
+make oracle / make core / make k4   # run one driver
 make clean
 ```
 
