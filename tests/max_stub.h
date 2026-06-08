@@ -14,4 +14,9 @@ typedef struct {
 void         mock_buffer_install(float *data, long frames, long chans, double sr);
 mock_buffer *mock_buffer_get(void);
 
+// Capture of the most recent outlet_list() emission (the data/report outlet).
+void   mock_outlet_reset(void);
+long   mock_outlet_count(void);   // -1 if nothing emitted since reset
+double mock_outlet_value(long i);
+
 #endif

@@ -51,7 +51,7 @@ int main(void)
 {
     printf("=== k4 candidate ===\n");
     // k4's >2ch path is MC 'poly' with different I/O; restrict offline diff to mono+stereo.
-    run_all_scenarios(construct, perform, "k4", 2);
+    run_all_scenarios(construct, perform, NULL, "k4", 2);
     printf("OK\n");
     return 0;
 }

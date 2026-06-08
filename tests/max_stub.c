@@ -119,8 +119,28 @@ void object_warn(t_object *x, const char *s, ...)  { (void)x; va_list ap; va_sta
 static int g_dummy_outlet, g_dummy_clock;
 
 void *outlet_new(void *x, const char *s) { (void)x; (void)s; return &g_dummy_outlet; }
-void *outlet_list(void *o, t_symbol *s, short ac, t_atom *av) { (void)o; (void)s; (void)ac; (void)av; return NULL; }
 void *listout(void *x) { (void)x; return &g_dummy_outlet; }
+
+// Capture the most recent list emitted (so tests can inspect the data outlet).
+#define MOCK_OUTLET_MAX 32
+static t_atom g_outlet_atoms[MOCK_OUTLET_MAX];
+static long   g_outlet_count = -1;   // -1 = nothing emitted since last reset
+
+void *outlet_list(void *o, t_symbol *s, short ac, t_atom *av)
+{
+    (void)o; (void)s;
+    g_outlet_count = (ac < MOCK_OUTLET_MAX) ? ac : MOCK_OUTLET_MAX;
+    for (long i = 0; i < g_outlet_count; i++) g_outlet_atoms[i] = av[i];
+    return NULL;
+}
+void    mock_outlet_reset(void) { g_outlet_count = -1; }
+long    mock_outlet_count(void) { return g_outlet_count; }
+double  mock_outlet_value(long i)
+{
+    if (i < 0 || i >= g_outlet_count) return 0.0;
+    t_atom *a = &g_outlet_atoms[i];
+    return (a->a_type == A_FLOAT) ? a->a_w.w_float : (double)a->a_w.w_long;
+}
 
 void *clock_new(void *obj, method fn) { (void)obj; (void)fn; return &g_dummy_clock; }
 void  clock_delay(void *x, long n) { (void)x; (void)n; }

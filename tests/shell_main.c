@@ -105,6 +105,16 @@ static void run_one(t_karma_re *x, const scenario *sc, FILE *out)
     fwrite(&nb, sizeof(nb), 1, out);
     fwrite(mb->data, sizeof(float), (size_t)nb, out);
     free(cap);
+
+    // data/report outlet capture (matches scenarios.h's write_report format)
+    double  rep[32];
+    int64_t nr = 0;
+    mock_outlet_reset();
+    karma_re_clock_list(x);
+    long rc = mock_outlet_count();
+    if (rc > 0) { nr = (rc > 32) ? 32 : rc; for (long i = 0; i < nr; i++) rep[i] = mock_outlet_value(i); }
+    fwrite(&nr, sizeof(nr), 1, out);
+    fwrite(rep, sizeof(double), (size_t)nr, out);
 }
 
 int main(void)

@@ -9,7 +9,7 @@
 #include <math.h>
 #include <string.h>
 
-typedef struct { int64_t n_out; double *out; int64_t n_buf; float *buf; } cap;
+typedef struct { int64_t n_out; double *out; int64_t n_buf; float *buf; int64_t n_rep; double *rep; } cap;
 
 static int load(const char *path, cap *c)
 {
@@ -21,6 +21,11 @@ static int load(const char *path, cap *c)
     if (fread(&c->n_buf, sizeof(int64_t), 1, f) != 1) goto bad;
     c->buf = malloc((size_t)c->n_buf * sizeof(float));
     if (fread(c->buf, sizeof(float), (size_t)c->n_buf, f) != (size_t)c->n_buf) goto bad;
+    c->n_rep = 0; c->rep = NULL;                     // optional report section
+    if (fread(&c->n_rep, sizeof(int64_t), 1, f) == 1 && c->n_rep > 0) {
+        c->rep = malloc((size_t)c->n_rep * sizeof(double));
+        if (fread(c->rep, sizeof(double), (size_t)c->n_rep, f) != (size_t)c->n_rep) goto bad;
+    }
     fclose(f); return 1;
 bad:
     fprintf(stderr, "short read on %s\n", path); fclose(f); return 0;
@@ -70,6 +75,24 @@ int main(int argc, char **argv)
             printf("  buf: %lld/%lld frames differ; first @ %lld (%.9g vs %.9g); max|d|=%.3g\n",
                    (long long)ndiff, (long long)a.n_buf, (long long)first, a.buf[first], b.buf[first], maxd);
         } else printf("  buf: identical (%lld frames)\n", (long long)a.n_buf);
+    }
+
+    // --- data/report outlet (only when both files carry one) ---
+    if (a.n_rep > 0 && b.n_rep > 0) {
+        double rtol = (tol > 1e-4) ? tol : 1e-4;   // report values are float-rounded
+        if (a.n_rep != b.n_rep) { printf("  report length differs: %lld vs %lld\n", (long long)a.n_rep, (long long)b.n_rep); differ = 1; }
+        else {
+            int64_t first = -1; double maxd = 0;
+            for (int64_t i = 0; i < a.n_rep; i++) {
+                double d = fabs(a.rep[i] - b.rep[i]);
+                if (d > rtol) { if (first < 0) first = i; if (d > maxd) maxd = d; }
+            }
+            if (first >= 0) {
+                differ = 1;
+                printf("  report: element %lld differs (%.9g vs %.9g); max|d|=%.3g\n",
+                       (long long)first, a.rep[first], b.rep[first], maxd);
+            } else printf("  report: identical (%lld elements)\n", (long long)a.n_rep);
+        }
     }
 
     return differ ? 1 : 0;

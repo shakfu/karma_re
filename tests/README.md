@@ -42,6 +42,13 @@ unchanged, so it is behaviourally identical to the reference.
 stereo, and quad all match the reference sample-for-sample (output + buffer)
 across every scenario**, including the multichannel overdub-boundary cases.
 
+The drivers also capture the **data/report outlet** at the end of each scenario
+(via the stub's `outlet_list` capture). `make shelldiff` diffs the shell's
+`karma_re_clock_list` output against the reference's `karma_clock_list` (the
+7-element position/state/loop-bounds list). This guards the report-list value
+math; it does not exercise the report *clock arming* (a Max scheduling concern
+with no offline equivalent).
+
 To re-extract after touching the reference:
 `(cd ../source/projects/karma_core && ./gen_core.sh) && make`.
 

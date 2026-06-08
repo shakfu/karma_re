@@ -47,7 +47,7 @@ static void perform(t_karma *x, double **ins, long nins, double **outs, long nou
 int main(void)
 {
     printf("=== karma_core ===\n");
-    run_all_scenarios(construct, perform, "core", 4);
+    run_all_scenarios(construct, perform, NULL, "core", 4);   // core has no report outlet
     printf("OK\n");
     return 0;
 }

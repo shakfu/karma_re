@@ -107,6 +107,10 @@ static const scenario g_scenarios[] = {
 typedef void (*perform_fn)(t_karma *x, double **ins, long nins,
                            double **outs, long nouts, long vcount);
 typedef t_karma *(*construct_fn)(long frames, long chans, double sr);
+// Optional: emit the data/report outlet once, so the harness can capture it
+// (the reference's karma_clock_list / the shell's karma_re_clock_list). NULL =
+// this impl has no report outlet (e.g. the core).
+typedef void (*report_fn)(t_karma *x);
 
 static void scn_fire(t_karma *x, const sc_event *e)
 {
@@ -123,9 +127,26 @@ static void scn_fire(t_karma *x, const sc_event *e)
     }
 }
 
-// Run one scenario; write captured output (interleaved) + final buffer to `out`:
-//   [int64 n_out][double out[n_out]][int64 n_buf][float buf[n_buf]]
-static void run_scenario(t_karma *x, const scenario *sc, perform_fn perform, FILE *out)
+// Capture the data/report outlet (if any) and append it to `out`:
+//   [int64 n_rep][double rep[n_rep]]   (n_rep == 0 when the impl has no report)
+static void write_report(FILE *out, t_karma *x, report_fn report)
+{
+    double  rep[32];
+    int64_t nr = 0;
+    if (report) {
+        mock_outlet_reset();
+        report(x);
+        long c = mock_outlet_count();
+        if (c > 0) { nr = (c > 32) ? 32 : c; for (long i = 0; i < nr; i++) rep[i] = mock_outlet_value(i); }
+    }
+    fwrite(&nr, sizeof(nr), 1, out);
+    fwrite(rep, sizeof(double), (size_t)nr, out);
+}
+
+// Run one scenario; write captured output (interleaved) + final buffer + the
+// final data/report outlet to `out`:
+//   [int64 n_out][double out[n_out]][int64 n_buf][float buf[n_buf]][report]
+static void run_scenario(t_karma *x, const scenario *sc, perform_fn perform, report_fn report, FILE *out)
 {
     long chans = sc->chans;
     double in_audio[SCN_MAXCHANS][SCN_VS], in_speed[SCN_VS];
@@ -169,9 +190,11 @@ static void run_scenario(t_karma *x, const scenario *sc, perform_fn perform, FIL
     fwrite(&nb, sizeof(nb), 1, out);
     fwrite(mb->data, sizeof(float), (size_t)nb, out);
     free(cap);
+
+    write_report(out, x, report);
 }
 
-static void run_all_scenarios(construct_fn make, perform_fn perform,
+static void run_all_scenarios(construct_fn make, perform_fn perform, report_fn report,
                               const char *impl, long max_chans)
 {
     char path[512];
@@ -183,7 +206,7 @@ static void run_all_scenarios(construct_fn make, perform_fn perform,
         snprintf(path, sizeof(path), "%s_%s.bin", impl, sc->name);
         FILE *f = fopen(path, "wb");
         if (!f) { fprintf(stderr, "cannot open %s\n", path); continue; }
-        run_scenario(x, sc, perform, f);
+        run_scenario(x, sc, perform, report, f);
         fclose(f);
         printf("  wrote %s\n", path);
         mock_buffer *mb = mock_buffer_get();

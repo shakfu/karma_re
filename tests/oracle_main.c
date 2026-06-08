@@ -51,7 +51,7 @@ static void perform(t_karma *x, double **ins, long nins, double **outs, long nou
 int main(void)
 {
     printf("=== reference oracle ===\n");
-    run_all_scenarios(construct, perform, "ref", 4);
+    run_all_scenarios(construct, perform, karma_clock_list, "ref", 4);
     printf("OK\n");
     return 0;
 }
