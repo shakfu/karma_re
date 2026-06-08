@@ -7649,3 +7649,51 @@ void karma_core_set_dims(t_karma *x)
     x->selstart  = 0.0;
     x->selection = 1.0;
 }
+
+// Set loop start/end (the pure part of the reference karma_buf_values_internal:
+// no buffer~ query, no UI warnings). points_flag: 0 = phase 0..1, 1 = samples,
+// 2 = milliseconds. low/high < 0 mean "unset" -> defaults (0 / full). The host
+// does any buffer re-query (karma_core_set_dims) before calling this.
+void karma_core_set_loop(t_karma *x, double low, double high, long points_flag)
+{
+    double bframesm1 = (double)(x->bframes - 1);
+    double bframesms = bframesm1 / x->bmsr;
+    double bvsnorm   = x->vsnorm * (x->bsr / (double)x->bframes);
+    double bvsnorm05 = bvsnorm * 0.5;
+    x->bvsnorm = bvsnorm;
+
+    if (low < 0.) low = 0.;
+
+    if (points_flag == 0) {                 // phase 0..1 (already normalised)
+        if (high < 0.) high = 1.;
+    } else if (points_flag == 1) {          // samples
+        if (high < 0.) high = 1.; else high = high / bframesm1;
+        if (low > 0.) low = low / bframesm1;
+    } else {                                // milliseconds
+        if (high < 0.) high = 1.; else high = high / bframesms;
+        if (low > 0.) low = low / bframesms;
+    }
+
+    double lowtemp = low, hightemp = high;  // sort
+    low  = (lowtemp < hightemp) ? lowtemp : hightemp;
+    high = (lowtemp > hightemp) ? lowtemp : hightemp;
+
+    if (low > 1.)  low = 1. - bvsnorm;
+    if (high > 1.) high = 1.;
+
+    if ((high - low) < bvsnorm) {           // enforce minimum loop size (vectorsize)
+        if ((high - low) == 0.) return;     // zero-size loop: ignore
+        if ((low - bvsnorm05) < 0.)       { low = 0.;  high = bvsnorm; }
+        else if ((high + bvsnorm05) > 1.) { high = 1.; low = 1. - bvsnorm; }
+        else                              { low -= bvsnorm05; high += bvsnorm05; }
+    }
+
+    low  = CLAMP(low, 0., 1.);
+    high = CLAMP(high, 0., 1.);
+
+    x->minloop = x->startloop = (t_ptr_int)(low * bframesm1);
+    x->maxloop = x->endloop   = (t_ptr_int)(high * bframesm1);
+
+    karma_select_size(x, x->selection);
+    karma_select_start(x, x->selstart);
+}

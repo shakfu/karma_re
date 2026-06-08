@@ -137,6 +137,37 @@ static void test_ease_bufoff(void)
     CHECK(unchanged);
 }
 
+// karma_core_set_loop: loop-window math (phase/samples/ms, sort, defaults,
+// minimum-size guard) -> minloop/maxloop in samples.
+static void test_set_loop(void)
+{
+    t_karma x;
+    memset(&x, 0, sizeof(x));
+    x.bframes = 16384; x.bsr = 48000; x.ssr = 48000; x.bmsr = 48.0;
+    x.vs = 64; x.vsnorm = 64.0 / 48000.0;
+    x.ochans = 1; x.nchans = 1;
+    x.selstart = 0.0; x.selection = 1.0;
+    x.directionorig = 0; x.loopdetermine = 0;
+
+    // phase 0.25..0.75 over a 16383-sample span
+    karma_core_set_loop(&x, 0.25, 0.75, 0);
+    CHECK(x.minloop == 4095);    // trunc(0.25 * 16383)
+    CHECK(x.maxloop == 12287);   // trunc(0.75 * 16383)
+
+    // args given high-then-low are sorted -> same result
+    karma_core_set_loop(&x, 0.75, 0.25, 0);
+    CHECK(x.minloop == 4095 && x.maxloop == 12287);
+
+    // unset (< 0) defaults: low->0, high->full buffer
+    karma_core_set_loop(&x, -1.0, -1.0, 1);
+    CHECK(x.minloop == 0 && x.maxloop == 16383);
+
+    // zero-size loop is ignored (state unchanged)
+    long keepmin = x.minloop, keepmax = x.maxloop;
+    karma_core_set_loop(&x, 0.5, 0.5, 0);
+    CHECK(x.minloop == keepmin && x.maxloop == keepmax);
+}
+
 int main(void)
 {
     printf("=== kernel unit tests ===\n");
@@ -146,6 +177,7 @@ int main(void)
     test_ease_switchramp();
     test_interp_index();
     test_ease_bufoff();
+    test_set_loop();
     printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

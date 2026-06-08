@@ -31,6 +31,16 @@ identical battery of scenarios and diffs their output + final buffer. They
 currently match exactly for mono, stereo, and quad. After editing the reference
 (or the generator), re-run `gen_core.sh` and `make` in `tests/`.
 
+## Headers
+
+- `karma_core_api.h` — the public API (struct, buffer interface, function
+  declarations). Include this **after** the host's own scalar types
+  (`t_ptr_int` / `t_bool` / `t_object`): the real c74 headers in a Max host, or
+  `karma_core.h` in the standalone build.
+- `karma_core.h` — the standalone build config: Max-free scalar typedefs, no-op
+  UI/clock shims, interpolation macros, then `#include "karma_core_api.h"`. Only
+  `karma_core.c` includes this.
+
 ## Using it in a host
 
 ```c
@@ -41,3 +51,8 @@ karma_core_set_dims(x);
 // per control message: karma_record(x) / karma_overdub(x, amp) / ...
 // per audio vector:    karma_mono_perform(x, NULL, ins, nins, outs, nouts, n, 0, NULL);
 ```
+
+The Max external `../karma_re_tilde/karma_re~.c` is the reference host: a thin
+shell that wraps a `karma_core` and backs the buffer interface with a Max
+`buffer~`. It is validated against the original `karma~` sample-for-sample by the
+offline harness in `../../../tests/` (`make shelldiff`).

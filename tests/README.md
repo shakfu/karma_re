@@ -59,16 +59,22 @@ To re-extract after touching the reference:
 5. [done] Kernel unit tests (`unit_kernels.c`): interpolation macros, ease/fade
    functions, ipoke buffer-fade, and interp-index wrap math, checked against
    hand-computed values (`make unit`).
-6. Re-host in Max as a thin shell over `karma_core`.
+6. [done] Re-host in Max as a thin shell over `karma_core`
+   (`../source/projects/karma_re_tilde/karma_re~.c`). The shell owns only the
+   Max plumbing (object/inlets/outlets/buffer~ ref/clock/attrs) and forwards
+   buffer access, control messages, and perform to the core. Driven offline via
+   the stub (`shell_main.c`), it matches the reference sample-for-sample on all
+   15 scenarios (`make shelldiff`).
 
 ## Build
 
 ```
-make            # full check: extraction diff (ref vs core) + kernel unit tests
-make diff       # just the ref-vs-core sample-exact differential
-make unit       # just the kernel unit tests
+make            # full check: ref==core, ref==shell, and kernel unit tests
+make diff       # ref-vs-core sample-exact differential
+make shelldiff  # ref-vs-(karma_re~ shell) sample-exact differential
+make unit       # kernel unit tests
 make k4diff     # characterise how far k4 diverges from the reference
-make oracle / make core / make k4   # run one driver
+make oracle / make core / make shell / make k4   # run one driver
 make clean
 ```
 
