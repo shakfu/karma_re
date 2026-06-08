@@ -1,4 +1,4 @@
-PKG_NAME := "karma"
+PKG_NAME := "karma_re"
 ROOTDIR := $(shell pwd)
 HOMEBREW := $(shell brew --prefix)
 CLANG_TIDY := $(HOMEBREW)/opt/llvm/bin/clang-tidy
