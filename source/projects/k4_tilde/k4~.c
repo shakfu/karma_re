@@ -208,85 +208,159 @@ static t_symbol *ps_originalloop;
 static t_class  *karma_class = NULL;
 
 // --------------------------------------------------------------------------------------
-// Macros for reducing code duplication in perform routines
+// Per-call state shared across the mono/stereo/poly perform routines
+//
+// The perform routines pull a large set of channel-independent state out of the t_karma
+// struct into locals at the top of the call, mutate them while processing the vector, then
+// write the changed values back at the end. This struct holds that working set so the
+// load/store can be expressed as two ordinary functions (kh_load_perform_state /
+// kh_store_perform_state) instead of the wide, name-coupled macros they replace.
+//
+// Channel-specific values (o1prev/o2prev..., osamp1/osamp2..., recin..., writeval...) and
+// the per-sample scratch values (speed, direction, playhead) remain plain locals in each
+// routine, because they differ per channel count and benefit from staying in registers.
+
+typedef struct t_perform_state {
+    // playback / record heads and loop window
+    double accuratehead;        // play position in samples (fractional)
+    double maxhead;             // furthest recorded play position
+    long   playfade;            // playback fade counter
+    long   recordfade;          // recording fade counter
+    // NOTE: recordhead is intentionally NOT part of this struct. It lives solely in
+    // x->timing.recordhead and is mutated in place by the boundary/record helpers
+    // (kh_process_recording_cleanup, kh_process_record_toggle, etc.). Keeping a divergent
+    // local copy here caused the ipoke record head to backfill across loop boundaries and
+    // on record restart, erasing prior audio.
+    long   startloop;           // playback window start (samples)
+    long   endloop;             // playback window end (samples)
+    long   minloop;             // minimum requested loop start (samples)
+    long   maxloop;             // overall recorded loop end (samples)
+    long   initiallow;          // initial-loop low point
+    long   initialhigh;         // initial-loop high point
+    long   frames;              // buffer frame count
+    long   pchans;              // buffer channel count
+
+    // overdub amplitude smoothing (note: 'amp' holds the *previous* value and 'prev' the
+    // *current* target; ovdbdif ramps 'amp' toward 'prev' across the vector)
+    double overdubamp;
+    double overdubprev;
+    double ovdbdif;
+
+    // fades / ramps
+    double snrfade;             // switch-and-ramp counter, 0..1
+    double globalramp;          // general fade time in samples (as double)
+    double snrramp;             // switch-and-ramp time in samples (as double)
+    double pokesteps;           // ipoke~ averaging step count
+    double speedfloat;          // speed inlet value when float (not signal)
+
+    // booleans / flags
+    t_bool go;
+    t_bool record;
+    t_bool recordprev;
+    t_bool alternateflag;
+    t_bool loopdetermine;
+    t_bool jumpflag;
+    t_bool append;
+    t_bool wrapflag;
+    t_bool triginit;
+
+    char directionprev;
+    char directionorig;
+    char playfadeflag;
+    char recfadeflag;
+    char recendmark;
+
+    control_state_t   statecontrol;
+    switchramp_type_t snrtype;
+    interp_type_t     interp;
+} t_perform_state;
 
 /**
- * @brief Macro to load common state variables from t_karma struct to local variables
+ * @brief Load the channel-independent perform state out of the object into `st`.
  *
- * This macro reduces duplication across mono/stereo/poly perform routines by extracting
- * the common pattern of loading state variables into local variables.
+ * `record`/`recordprev` are intentionally not loaded here (they are set by
+ * kh_setup_perform_buffer), and `accuratehead`/`wrapflag` are initialised by
+ * kh_initialize_perform_vars. `n` is the vector size, used to derive the per-sample
+ * overdub ramp increment.
  */
-#define KARMA_LOAD_COMMON_STATE(x, n) \
-    go = (x)->state.go; \
-    statecontrol = (x)->state.statecontrol; \
-    playfadeflag = (x)->fade.playfadeflag; \
-    recfadeflag = (x)->fade.recfadeflag; \
-    recordhead = (x)->timing.recordhead; \
-    alternateflag = (x)->state.alternateflag; \
-    pchans = (x)->buffer.bchans; \
-    frames = (x)->buffer.bframes; \
-    triginit = (x)->state.triginit; \
-    jumpflag = (x)->state.jumpflag; \
-    append = (x)->state.append; \
-    directionorig = (x)->state.directionorig; \
-    directionprev = (x)->state.directionprev; \
-    minloop = (x)->loop.minloop; \
-    maxloop = (x)->loop.maxloop; \
-    initiallow = (x)->loop.initiallow; \
-    initialhigh = (x)->loop.initialhigh; \
-    loopdetermine = (x)->state.loopdetermine; \
-    startloop = (x)->loop.startloop; \
-    endloop = (x)->loop.endloop; \
-    recendmark = (x)->state.recendmark; \
-    overdubamp = (x)->audio.overdubprev; \
-    overdubprev = (x)->audio.overdubamp; \
-    ovdbdif = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / (n)) : 0.0; \
-    recordfade = (x)->fade.recordfade; \
-    playfade = (x)->fade.playfade; \
-    maxhead = (x)->timing.maxhead; \
-    pokesteps = (x)->audio.pokesteps; \
-    snrfade = (x)->fade.snrfade; \
-    globalramp = (double)(x)->fade.globalramp; \
-    snrramp = (double)(x)->fade.snrramp; \
-    snrtype = (x)->fade.snrtype; \
-    interp = (x)->audio.interpflag; \
-    speedfloat = (x)->speedfloat
+static inline void kh_load_perform_state(t_karma* x, t_perform_state* st, double n)
+{
+    st->go            = x->state.go;
+    st->statecontrol  = x->state.statecontrol;
+    st->playfadeflag  = x->fade.playfadeflag;
+    st->recfadeflag   = x->fade.recfadeflag;
+    st->alternateflag = x->state.alternateflag;
+    st->pchans        = x->buffer.bchans;
+    st->frames        = x->buffer.bframes;
+    st->triginit      = x->state.triginit;
+    st->jumpflag      = x->state.jumpflag;
+    st->append        = x->state.append;
+    st->directionorig = x->state.directionorig;
+    st->directionprev = x->state.directionprev;
+    st->minloop       = x->loop.minloop;
+    st->maxloop       = x->loop.maxloop;
+    st->initiallow    = x->loop.initiallow;
+    st->initialhigh   = x->loop.initialhigh;
+    st->loopdetermine = x->state.loopdetermine;
+    st->startloop     = x->loop.startloop;
+    st->endloop       = x->loop.endloop;
+    st->recendmark    = x->state.recendmark;
+    st->overdubamp    = x->audio.overdubprev;
+    st->overdubprev   = x->audio.overdubamp;
+    st->ovdbdif       = (st->overdubamp != st->overdubprev)
+                            ? ((st->overdubprev - st->overdubamp) / n)
+                            : 0.0;
+    st->recordfade    = x->fade.recordfade;
+    st->playfade      = x->fade.playfade;
+    st->maxhead       = x->timing.maxhead;
+    st->pokesteps     = x->audio.pokesteps;
+    st->snrfade       = x->fade.snrfade;
+    st->globalramp    = (double)x->fade.globalramp;
+    st->snrramp       = (double)x->fade.snrramp;
+    st->snrtype       = x->fade.snrtype;
+    st->interp        = x->audio.interpflag;
+    st->speedfloat    = x->speedfloat;
+}
 
 /**
- * @brief Macro to store common state variables back to t_karma struct
+ * @brief Write the changed perform state in `st` back into the object.
  *
- * This macro reduces duplication in the cleanup section of perform routines.
+ * Mirrors kh_load_perform_state; only the fields that the perform routine can mutate are
+ * written back (e.g. pchans/frames/snrramp/snrtype/interp/speedfloat are read-only and not
+ * stored). `accuratehead` is written into timing.playhead and the smoothed `overdubamp`
+ * back into audio.overdubprev, matching the original macro.
  */
-#define KARMA_STORE_COMMON_STATE(x) \
-    (x)->timing.maxhead = maxhead; \
-    (x)->audio.pokesteps = pokesteps; \
-    (x)->state.wrapflag = wrapflag; \
-    (x)->fade.snrfade = snrfade; \
-    (x)->timing.playhead = accuratehead; \
-    (x)->state.directionorig = directionorig; \
-    (x)->state.directionprev = directionprev; \
-    (x)->timing.recordhead = recordhead; \
-    (x)->state.alternateflag = alternateflag; \
-    (x)->fade.recordfade = recordfade; \
-    (x)->state.triginit = triginit; \
-    (x)->state.jumpflag = jumpflag; \
-    (x)->state.go = go; \
-    (x)->state.record = record; \
-    (x)->state.recordprev = recordprev; \
-    (x)->state.statecontrol = statecontrol; \
-    (x)->fade.playfadeflag = playfadeflag; \
-    (x)->fade.recfadeflag = recfadeflag; \
-    (x)->fade.playfade = playfade; \
-    (x)->loop.minloop = minloop; \
-    (x)->loop.maxloop = maxloop; \
-    (x)->loop.initiallow = initiallow; \
-    (x)->loop.initialhigh = initialhigh; \
-    (x)->state.loopdetermine = loopdetermine; \
-    (x)->loop.startloop = startloop; \
-    (x)->loop.endloop = endloop; \
-    (x)->audio.overdubprev = overdubamp; \
-    (x)->state.recendmark = recendmark; \
-    (x)->state.append = append
+static inline void kh_store_perform_state(t_karma* x, const t_perform_state* st)
+{
+    x->timing.maxhead     = st->maxhead;
+    x->audio.pokesteps    = st->pokesteps;
+    x->state.wrapflag     = st->wrapflag;
+    x->fade.snrfade       = st->snrfade;
+    x->timing.playhead    = st->accuratehead;
+    x->state.directionorig = st->directionorig;
+    x->state.directionprev = st->directionprev;
+    x->state.alternateflag = st->alternateflag;
+    x->fade.recordfade    = st->recordfade;
+    x->state.triginit     = st->triginit;
+    x->state.jumpflag     = st->jumpflag;
+    x->state.go           = st->go;
+    x->state.record       = st->record;
+    x->state.recordprev   = st->recordprev;
+    x->state.statecontrol = st->statecontrol;
+    x->fade.playfadeflag  = st->playfadeflag;
+    x->fade.recfadeflag   = st->recfadeflag;
+    x->fade.playfade      = st->playfade;
+    x->loop.minloop       = st->minloop;
+    x->loop.maxloop       = st->maxloop;
+    x->loop.initiallow    = st->initiallow;
+    x->loop.initialhigh   = st->initialhigh;
+    x->state.loopdetermine = st->loopdetermine;
+    x->loop.startloop     = st->startloop;
+    x->loop.endloop       = st->endloop;
+    x->audio.overdubprev  = st->overdubamp;
+    x->state.recendmark   = st->recendmark;
+    x->state.append       = st->append;
+}
 
 // --------------------------------------------------------------------------------------
 // forward declarations of private helper functions
@@ -2633,30 +2707,24 @@ void karma_mono_perform(
     long  n = vcount;
     short speedinlet = x->speedconnect;
 
-    double accuratehead, maxhead, pokesteps;
-    double speed, speedfloat, osamp1, overdubamp, overdubprev, ovdbdif;
-    double o1prev, o1dif, snrfade, globalramp, snrramp, writeval1, recin1;
-    t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt,
-        wrapflag, triginit;
-    char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
-    long playfade, recordfade, pchans;
-    control_state_t   statecontrol;
-    switchramp_type_t snrtype;
-    interp_type_t     interp;
-    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize = 0;
-    long initiallow, initialhigh;
+    t_perform_state st;
+    double speed, osamp1;
+    double o1prev, o1dif, writeval1, recin1;
+    t_bool dirt;
+    char  direction;
+    long  playhead, setloopsize = 0;
 
     // Use helper function to setup buffer and load initial state
     t_buffer_obj* buf;
-    float* b = kh_setup_perform_buffer(x, &buf, &record, &recordprev, &dirt);
+    float* b = kh_setup_perform_buffer(x, &buf, &st.record, &st.recordprev, &dirt);
     if (!b)
         goto zero;
 
-    // Load common state variables using macro
-    KARMA_LOAD_COMMON_STATE(x, n);
+    // Load common state variables into the perform-state struct
+    kh_load_perform_state(x, &st, n);
 
     // Initialize performance variables using helper function
-    kh_initialize_perform_vars(x, &accuratehead, &playhead, &wrapflag);
+    kh_initialize_perform_vars(x, &st.accuratehead, &playhead, &st.wrapflag);
 
     // Load channel-specific variables for mono
     o1prev = x->audio.o1prev;
@@ -2665,8 +2733,8 @@ void karma_mono_perform(
 
     // Process state control using helper function
     kh_process_state_control(
-        x, &statecontrol, &record, &go, &triginit, &loopdetermine, &recordfade,
-        &recfadeflag, &playfade, &playfadeflag, &recendmark);
+        x, &st.statecontrol, &st.record, &st.go, &st.triginit, &st.loopdetermine, &st.recordfade,
+        &st.recfadeflag, &st.playfade, &st.playfadeflag, &st.recendmark);
 
     //  raja notes:
     // 'snrfade = 0.0' triggers switch&ramp (declick play)
@@ -2675,57 +2743,57 @@ void karma_mono_perform(
 
     while (n--) {
         recin1 = *in1++;
-        speed = speedinlet ? *in2++ : speedfloat; // signal of float ?
+        speed = speedinlet ? *in2++ : st.speedfloat; // signal of float ?
         direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
 
         // Handle direction changes using helper function
-        kh_process_direction_change(x, b, directionprev, direction);
-        if (directionprev != direction && record && globalramp) {
-            recordhead = -1; // Special case handling for recordhead
+        kh_process_direction_change(x, b, st.directionprev, direction);
+        if (st.directionprev != direction && st.record && st.globalramp) {
+            x->timing.recordhead = -1; // Special case handling for recordhead
         }
 
         // Handle record on/off transitions using helper function
-        kh_process_record_toggle(x, b, accuratehead, direction, speed, &dirt);
-        recordprev = record;
+        kh_process_record_toggle(x, b, st.accuratehead, direction, speed, &dirt);
+        st.recordprev = st.record;
 
-        if (!loopdetermine) {
-            if (go) {
+        if (!st.loopdetermine) {
+            if (st.go) {
                 /*
-                calculate_head(directionorig, maxhead, frames, minloop,
-                selstart, selection, direction, globalramp, &b, pchans, record,
-                jumpflag, jumphead, &maxloop, &setloopsize, &accuratehead,
-                &startloop, &endloop, &wrapflag, &recordhead, &snrfade, &append,
-                &alternateflag, &recendmark, &triginit, &speedsrscaled,
-                &recordfade, &recfadeflag);
+                calculate_head(st.directionorig, st.maxhead, st.frames, st.minloop,
+                selstart, selection, direction, st.globalramp, &b, st.pchans, st.record,
+                st.jumpflag, jumphead, &st.maxloop, &setloopsize, &st.accuratehead,
+                &st.startloop, &st.endloop, &st.wrapflag, &x->timing.recordhead, &st.snrfade, &st.append,
+                &st.alternateflag, &st.recendmark, &st.triginit, &speedsrscaled,
+                &st.recordfade, &st.recfadeflag);
                 */
 
                 // Handle loop initialization and calculation
                 kh_process_loop_initialization(
-                    x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark,
-                    triginit, jumpflag);
-                if (triginit) {
-                    recordhead = -1;
-                    triginit = 0;
-                    if (record && !recendmark) {
-                        recordfade = 0;
-                        recfadeflag = 0;
+                    x, b, &st.accuratehead, direction, &setloopsize, &st.wrapflag, &st.recendmark,
+                    st.triginit, st.jumpflag);
+                if (st.triginit) {
+                    x->timing.recordhead = -1;
+                    st.triginit = 0;
+                    if (st.record && !st.recendmark) {
+                        st.recordfade = 0;
+                        st.recfadeflag = 0;
                     }
                 } else { // jump-based constraints (outside 'window')
-                    setloopsize = maxloop - minloop;
+                    setloopsize = st.maxloop - st.minloop;
 
                     // Handle loop boundary wrapping and jumping
                     kh_process_loop_boundary(
-                        x, b, &accuratehead, speed, direction, setloopsize, wrapflag,
-                        jumpflag);
+                        x, b, &st.accuratehead, speed, direction, setloopsize, st.wrapflag,
+                        st.jumpflag);
 
                     // Clear jumpflag if conditions are met
-                    if (jumpflag) {
-                        if (wrapflag) {
-                            if ((accuratehead < endloop) || (accuratehead > startloop))
-                                jumpflag = 0;
+                    if (st.jumpflag) {
+                        if (st.wrapflag) {
+                            if ((st.accuratehead < st.endloop) || (st.accuratehead > st.startloop))
+                                st.jumpflag = 0;
                         } else {
-                            if ((accuratehead < endloop) && (accuratehead > startloop))
-                                jumpflag = 0;
+                            if ((st.accuratehead < st.endloop) && (st.accuratehead > st.startloop))
+                                st.jumpflag = 0;
                         }
                     }
                 }
@@ -2734,149 +2802,149 @@ void karma_mono_perform(
 
                 // Calculate interpolation and get output sample
                 osamp1 = kh_calculate_interpolation_fraction_and_osamp(
-                    accuratehead, direction, b, pchans, interp, directionorig, maxloop, frames, record);
+                    st.accuratehead, direction, b, st.pchans, st.interp, st.directionorig, st.maxloop, st.frames, st.record);
 
                 // Process ramps and fades
                 osamp1 = kh_process_ramps_and_fades(
-                    osamp1, &o1prev, &o1dif, &snrfade, &playfade, globalramp, snrramp, snrtype,
-                    &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine, record);
+                    osamp1, &o1prev, &o1dif, &st.snrfade, &st.playfade, st.globalramp, st.snrramp, st.snrtype,
+                    &st.playfadeflag, &st.go, &st.triginit, &st.jumpflag, &st.loopdetermine, st.record);
 
             } else {
                 osamp1 = 0.0;
             }
 
             kh_calculate_sync_output(
-                osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop,
-                maxloop, directionorig, frames, setloopsize);
+                osamp1, &o1prev, &out1, syncoutlet, &outPh, st.accuratehead, st.minloop,
+                st.maxloop, st.directionorig, st.frames, setloopsize);
 
             /*
              ~ipoke - originally by PA Tremblay:
              http://www.pierrealexandretremblay.com/welcome.html (modded to
              allow for 'selection' (window) and 'selstart' (position) to change
              on the fly) raja's razor: simplest answer to everything was: recin1
-             = ease_record(recin1 + (b[playhead * pchans] * overdubamp),
-             recfadeflag, globalramp, recordfade); ...
+             = ease_record(recin1 + (b[playhead * st.pchans] * st.overdubamp),
+             st.recfadeflag, st.globalramp, st.recordfade); ...
              ... placed at the beginning / input of ipoke~ code to apply
              appropriate ramps to oldbuf + newinput (everything all-at-once) ...
              ... allows ipoke~ code to work its sample-specific math / magic
              accurately through the ducking / ramps even at high speed
             */
-            if (record) {
-                if ((recordfade < globalramp) && (globalramp > 0.0))
+            if (st.record) {
+                if ((st.recordfade < st.globalramp) && (st.globalramp > 0.0))
                     recin1 = kh_ease_record(
-                        recin1 + (((double)b[playhead * pchans]) * overdubamp),
-                        recfadeflag, globalramp, recordfade);
+                        recin1 + (((double)b[playhead * st.pchans]) * st.overdubamp),
+                        st.recfadeflag, st.globalramp, st.recordfade);
                 else
-                    recin1 += ((double)b[playhead * pchans]) * overdubamp;
+                    recin1 += ((double)b[playhead * st.pchans]) * st.overdubamp;
 
                 kh_process_ipoke_recording(
-                    b, pchans, playhead, &recordhead, recin1, overdubamp, globalramp,
-                    recordfade, recfadeflag, &pokesteps, &writeval1, &dirt);
+                    b, st.pchans, playhead, &x->timing.recordhead, recin1, st.overdubamp, st.globalramp,
+                    st.recordfade, st.recfadeflag, &st.pokesteps, &writeval1, &dirt);
             } // ~ipoke end
 
             kh_process_recording_fade(
-                globalramp, &recordfade, &recfadeflag, &record, &triginit, &jumpflag);
-            directionprev = direction;
+                st.globalramp, &st.recordfade, &st.recfadeflag, &st.record, &st.triginit, &st.jumpflag);
+            st.directionprev = direction;
 
         } else { // initial loop creation
                  // !! is 'loopdetermine' !!
 
-            if (go) {
-                if (triginit) {
-                    if (jumpflag) {
-                        kh_process_jump_logic(x, b, &accuratehead, &jumpflag, direction);
-                    } else if (append) { // append
+            if (st.go) {
+                if (st.triginit) {
+                    if (st.jumpflag) {
+                        kh_process_jump_logic(x, b, &st.accuratehead, &st.jumpflag, direction);
+                    } else if (st.append) { // append
                         kh_process_initial_loop_creation(
-                            x, b, &accuratehead, direction, &triginit);
-                        if (!record)
+                            x, b, &st.accuratehead, direction, &st.triginit);
+                        if (!st.record)
                             goto apned;
                     } else { // trigger start of initial loop creation
-                        directionorig = direction;
-                        minloop = 0.0;
-                        maxloop = frames - 1;
-                        maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;
-                        alternateflag = 1;
-                        recordhead = -1;
-                        snrfade = 0.0;
-                        triginit = 0;
+                        st.directionorig = direction;
+                        st.minloop = 0.0;
+                        st.maxloop = st.frames - 1;
+                        st.maxhead = st.accuratehead = (direction >= 0) ? st.minloop : st.maxloop;
+                        st.alternateflag = 1;
+                        x->timing.recordhead = -1;
+                        st.snrfade = 0.0;
+                        st.triginit = 0;
                     }
                 } else {
                 apned:
                     kh_process_initial_loop_boundary_constraints(
-                        x, b, &accuratehead, speed, direction);
+                        x, b, &st.accuratehead, speed, direction);
                     // initialhigh = append ? initialhigh : maxhead;   // !! !!
                 }
 
-                playhead = trunc(accuratehead);
+                playhead = trunc(st.accuratehead);
 
                 // Use helper function for playfade handling
                 kh_process_initial_loop_playfade(
-                    globalramp, &playfade, &playfadeflag, &recendmark, &go);
+                    st.globalramp, &st.playfade, &st.playfadeflag, &st.recendmark, &st.go);
             }
 
             osamp1 = 0.0;
             kh_calculate_sync_output(
-                osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop,
-                maxloop, directionorig, frames, setloopsize);
+                osamp1, &o1prev, &out1, syncoutlet, &outPh, st.accuratehead, st.minloop,
+                st.maxloop, st.directionorig, st.frames, setloopsize);
 
             // ~ipoke - originally by PA Tremblay:
             // http://www.pierrealexandretremblay.com/welcome.html (modded to
             // assume maximum distance recorded into buffer~ as the total
             // length)
-            if (record) {
-                if ((recordfade < globalramp) && (globalramp > 0.0))
+            if (st.record) {
+                if ((st.recordfade < st.globalramp) && (st.globalramp > 0.0))
                     recin1 = kh_ease_record(
-                        recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag,
-                        globalramp, recordfade);
+                        recin1 + ((double)b[playhead * st.pchans]) * st.overdubamp, st.recfadeflag,
+                        st.globalramp, st.recordfade);
                 else
-                    recin1 += ((double)b[playhead * pchans]) * overdubamp;
+                    recin1 += ((double)b[playhead * st.pchans]) * st.overdubamp;
 
                 kh_process_initial_loop_ipoke_recording(
-                    b, pchans, &recordhead, playhead, recin1, &pokesteps, &writeval1,
-                    direction, directionorig, maxhead, frames); // ~ipoke end
-                if (globalramp) // realtime ramps for record on/off
+                    b, st.pchans, &x->timing.recordhead, playhead, recin1, &st.pokesteps, &writeval1,
+                    direction, st.directionorig, st.maxhead, st.frames); // ~ipoke end
+                if (st.globalramp) // realtime ramps for record on/off
                 {
-                    if (recordfade < globalramp) {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp)) {
+                    if (st.recordfade < st.globalramp) {
+                        st.recordfade++;
+                        if ((st.recfadeflag) && (st.recordfade >= st.globalramp)) {
                             kh_process_recording_fade_completion(
-                                recfadeflag, &recendmark, &record, &triginit, &jumpflag,
-                                &loopdetermine, &recordfade, directionorig, &maxloop,
-                                maxhead, frames);
-                            recfadeflag = 0;
+                                st.recfadeflag, &st.recendmark, &st.record, &st.triginit, &st.jumpflag,
+                                &st.loopdetermine, &st.recordfade, st.directionorig, &st.maxloop,
+                                st.maxhead, st.frames);
+                            st.recfadeflag = 0;
                         }
                     }
                 } else {
-                    if (recfadeflag) {
+                    if (st.recfadeflag) {
                         kh_process_recording_fade_completion(
-                            recfadeflag, &recendmark, &record, &triginit, &jumpflag,
-                            &loopdetermine, &recordfade, directionorig, &maxloop, maxhead,
-                            frames);
-                        recfadeflag = 0;
+                            st.recfadeflag, &st.recendmark, &st.record, &st.triginit, &st.jumpflag,
+                            &st.loopdetermine, &st.recordfade, st.directionorig, &st.maxloop, st.maxhead,
+                            st.frames);
+                        st.recfadeflag = 0;
                     }
                 } //
-                recordhead = playhead;
+                x->timing.recordhead = playhead;
                 dirt = 1;
                 // initialhigh = maxloop;
             }
-            directionprev = direction;
+            st.directionprev = direction;
         }
-        if (ovdbdif != 0.0)
-            overdubamp = overdubamp + ovdbdif;
+        if (st.ovdbdif != 0.0)
+            st.overdubamp = st.overdubamp + st.ovdbdif;
 
-        initialhigh = (dirt) ? maxloop : initialhigh; // recordhead ??
+        st.initialhigh = (dirt) ? st.maxloop : st.initialhigh; // recordhead ??
     }
 
     // Use helper function for cleanup
-    kh_cleanup_perform(x, buf, b, dirt, go);
+    kh_cleanup_perform(x, buf, b, dirt, st.go);
 
     // Store channel-specific variables for mono
     x->audio.o1prev = o1prev;
     x->audio.o1dif = o1dif;
     x->audio.writeval1 = writeval1;
 
-    // Store common state variables using macro
-    KARMA_STORE_COMMON_STATE(x);
+    // Store common state variables back into the object
+    kh_store_perform_state(x, &st);
 
     return;
 
@@ -2927,30 +2995,24 @@ void karma_stereo_perform(
     long  n = vcount;
     short speedinlet = x->speedconnect;
 
-    double accuratehead, maxhead, pokesteps;
-    double speed, speedfloat, osamp1, osamp2, overdubamp, overdubprev, ovdbdif;
-    double o1prev, o1dif, o2prev, o2dif, snrfade, globalramp, snrramp, writeval1, writeval2, recin1, recin2;
-    t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt,
-        wrapflag, triginit;
-    char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
-    long playfade, recordfade, pchans;
-    control_state_t   statecontrol;
-    switchramp_type_t snrtype;
-    interp_type_t     interp;
-    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize = 0;
-    long initiallow, initialhigh;
+    t_perform_state st;
+    double speed, osamp1, osamp2;
+    double o1prev, o1dif, o2prev, o2dif, writeval1, writeval2, recin1, recin2;
+    t_bool dirt;
+    char  direction;
+    long  playhead, setloopsize = 0;
 
     // Use helper function to setup buffer and load initial state
     t_buffer_obj* buf;
-    float* b = kh_setup_perform_buffer(x, &buf, &record, &recordprev, &dirt);
+    float* b = kh_setup_perform_buffer(x, &buf, &st.record, &st.recordprev, &dirt);
     if (!b)
         goto zero;
 
-    // Load common state variables using macro
-    KARMA_LOAD_COMMON_STATE(x, n);
+    // Load common state variables into the perform-state struct
+    kh_load_perform_state(x, &st, n);
 
     // Initialize performance variables using helper function
-    kh_initialize_perform_vars(x, &accuratehead, &playhead, &wrapflag);
+    kh_initialize_perform_vars(x, &st.accuratehead, &playhead, &st.wrapflag);
 
     // Load channel-specific variables for stereo
     o1prev = x->audio.o1prev;
@@ -2962,8 +3024,8 @@ void karma_stereo_perform(
 
     // Process state control using helper function
     kh_process_state_control(
-        x, &statecontrol, &record, &go, &triginit, &loopdetermine, &recordfade,
-        &recfadeflag, &playfade, &playfadeflag, &recendmark);
+        x, &st.statecontrol, &st.record, &st.go, &st.triginit, &st.loopdetermine, &st.recordfade,
+        &st.recfadeflag, &st.playfade, &st.playfadeflag, &st.recendmark);
 
     //  raja notes:
     // 'snrfade = 0.0' triggers switch&ramp (declick play)
@@ -2973,61 +3035,61 @@ void karma_stereo_perform(
     while (n--) {
         recin1 = *in1++;
         recin2 = *in2++;
-        speed = speedinlet ? *in3++ : speedfloat; // signal of float ?
+        speed = speedinlet ? *in3++ : st.speedfloat; // signal of float ?
         direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
 
         // Handle direction changes using helper function
-        kh_process_direction_change(x, b, directionprev, direction);
-        if (directionprev != direction && record && globalramp) {
-            recordhead = -1; // Special case handling for recordhead
+        kh_process_direction_change(x, b, st.directionprev, direction);
+        if (st.directionprev != direction && st.record && st.globalramp) {
+            x->timing.recordhead = -1; // Special case handling for recordhead
         }
 
         // Handle record on/off transitions using helper function
-        kh_process_record_toggle(x, b, accuratehead, direction, speed, &dirt);
-        recordprev = record;
+        kh_process_record_toggle(x, b, st.accuratehead, direction, speed, &dirt);
+        st.recordprev = st.record;
 
-        if (!loopdetermine) {
-            if (go) {
+        if (!st.loopdetermine) {
+            if (st.go) {
                 // Handle loop initialization and calculation
                 kh_process_loop_initialization(
-                    x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark,
-                    triginit, jumpflag);
-                if (triginit) {
-                    recordhead = -1;
-                    triginit = 0;
-                    if (record && !recendmark) {
-                        recordfade = 0;
-                        recfadeflag = 0;
+                    x, b, &st.accuratehead, direction, &setloopsize, &st.wrapflag, &st.recendmark,
+                    st.triginit, st.jumpflag);
+                if (st.triginit) {
+                    x->timing.recordhead = -1;
+                    st.triginit = 0;
+                    if (st.record && !st.recendmark) {
+                        st.recordfade = 0;
+                        st.recfadeflag = 0;
                     }
                 } else { // jump-based constraints (outside 'window')
-                    setloopsize = maxloop - minloop;
+                    setloopsize = st.maxloop - st.minloop;
 
                     // Handle loop boundary wrapping and jumping
                     kh_process_loop_boundary(
-                        x, b, &accuratehead, speed, direction, setloopsize, wrapflag,
-                        jumpflag);
+                        x, b, &st.accuratehead, speed, direction, setloopsize, st.wrapflag,
+                        st.jumpflag);
 
                     // Clear jumpflag if conditions are met
-                    if (jumpflag) {
-                        if (wrapflag) {
-                            if ((accuratehead < endloop) || (accuratehead > startloop))
-                                jumpflag = 0;
+                    if (st.jumpflag) {
+                        if (st.wrapflag) {
+                            if ((st.accuratehead < st.endloop) || (st.accuratehead > st.startloop))
+                                st.jumpflag = 0;
                         } else {
-                            if ((accuratehead < endloop) && (accuratehead > startloop))
-                                jumpflag = 0;
+                            if ((st.accuratehead < st.endloop) && (st.accuratehead > st.startloop))
+                                st.jumpflag = 0;
                         }
                     }
                 }
 
                 // Calculate stereo interpolation and get output samples
                 kh_calculate_stereo_interpolation_and_osamp(
-                    accuratehead, direction, b, pchans, interp, directionorig, maxloop, frames, record,
+                    st.accuratehead, direction, b, st.pchans, st.interp, st.directionorig, st.maxloop, st.frames, st.record,
                     &osamp1, &osamp2);
 
                 // Process stereo ramps and fades
                 kh_process_stereo_ramps_and_fades(
-                    &osamp1, &osamp2, &o1prev, &o2prev, &o1dif, &o2dif, &snrfade, &playfade,
-                    globalramp, snrramp, snrtype, &playfadeflag, &go, &triginit, &jumpflag, &loopdetermine, record);
+                    &osamp1, &osamp2, &o1prev, &o2prev, &o1dif, &o2dif, &st.snrfade, &st.playfade,
+                    st.globalramp, st.snrramp, st.snrtype, &st.playfadeflag, &st.go, &st.triginit, &st.jumpflag, &st.loopdetermine, st.record);
 
             } else {
                 osamp1 = 0.0;
@@ -3035,142 +3097,142 @@ void karma_stereo_perform(
             }
 
             kh_calculate_sync_output(
-                osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop,
-                maxloop, directionorig, frames, setloopsize);
+                osamp1, &o1prev, &out1, syncoutlet, &outPh, st.accuratehead, st.minloop,
+                st.maxloop, st.directionorig, st.frames, setloopsize);
             *out2++ = osamp2;
             o2prev = osamp2;
 
-            if (record) {
-                if ((recordfade < globalramp) && (globalramp > 0.0)) {
+            if (st.record) {
+                if ((st.recordfade < st.globalramp) && (st.globalramp > 0.0)) {
                     recin1 = kh_ease_record(
-                        recin1 + (((double)b[playhead * pchans]) * overdubamp),
-                        recfadeflag, globalramp, recordfade);
-                    if (pchans > 1) {
+                        recin1 + (((double)b[playhead * st.pchans]) * st.overdubamp),
+                        st.recfadeflag, st.globalramp, st.recordfade);
+                    if (st.pchans > 1) {
                         recin2 = kh_ease_record(
-                            recin2 + (((double)b[playhead * pchans + 1]) * overdubamp),
-                            recfadeflag, globalramp, recordfade);
+                            recin2 + (((double)b[playhead * st.pchans + 1]) * st.overdubamp),
+                            st.recfadeflag, st.globalramp, st.recordfade);
                     } else {
                         recin2 = recin1;
                     }
                 } else {
-                    recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                    if (pchans > 1) {
-                        recin2 += ((double)b[playhead * pchans + 1]) * overdubamp;
+                    recin1 += ((double)b[playhead * st.pchans]) * st.overdubamp;
+                    if (st.pchans > 1) {
+                        recin2 += ((double)b[playhead * st.pchans + 1]) * st.overdubamp;
                     } else {
                         recin2 = recin1;
                     }
                 }
 
                 kh_process_ipoke_recording_stereo(
-                    b, pchans, playhead, &recordhead, recin1, recin2, overdubamp, globalramp,
-                    recordfade, recfadeflag, &pokesteps, &writeval1, &writeval2, &dirt);
+                    b, st.pchans, playhead, &x->timing.recordhead, recin1, recin2, st.overdubamp, st.globalramp,
+                    st.recordfade, st.recfadeflag, &st.pokesteps, &writeval1, &writeval2, &dirt);
             } // ~ipoke end
 
             kh_process_recording_fade(
-                globalramp, &recordfade, &recfadeflag, &record, &triginit, &jumpflag);
-            directionprev = direction;
+                st.globalramp, &st.recordfade, &st.recfadeflag, &st.record, &st.triginit, &st.jumpflag);
+            st.directionprev = direction;
 
         } else { // initial loop creation
                  // !! is 'loopdetermine' !!
 
-            if (go) {
-                if (triginit) {
-                    if (jumpflag) {
-                        kh_process_jump_logic(x, b, &accuratehead, &jumpflag, direction);
-                    } else if (append) { // append
+            if (st.go) {
+                if (st.triginit) {
+                    if (st.jumpflag) {
+                        kh_process_jump_logic(x, b, &st.accuratehead, &st.jumpflag, direction);
+                    } else if (st.append) { // append
                         kh_process_initial_loop_creation(
-                            x, b, &accuratehead, direction, &triginit);
-                        if (!record)
+                            x, b, &st.accuratehead, direction, &st.triginit);
+                        if (!st.record)
                             goto apned;
                     } else { // trigger start of initial loop creation
-                        directionorig = direction;
-                        minloop = 0.0;
-                        maxloop = frames - 1;
-                        maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;
-                        alternateflag = 1;
-                        recordhead = -1;
-                        snrfade = 0.0;
-                        triginit = 0;
+                        st.directionorig = direction;
+                        st.minloop = 0.0;
+                        st.maxloop = st.frames - 1;
+                        st.maxhead = st.accuratehead = (direction >= 0) ? st.minloop : st.maxloop;
+                        st.alternateflag = 1;
+                        x->timing.recordhead = -1;
+                        st.snrfade = 0.0;
+                        st.triginit = 0;
                     }
                 } else {
                 apned:
                     kh_process_initial_loop_boundary_constraints(
-                        x, b, &accuratehead, speed, direction);
+                        x, b, &st.accuratehead, speed, direction);
                 }
 
-                playhead = trunc(accuratehead);
+                playhead = trunc(st.accuratehead);
 
                 // Use helper function for playfade handling
                 kh_process_initial_loop_playfade(
-                    globalramp, &playfade, &playfadeflag, &recendmark, &go);
+                    st.globalramp, &st.playfade, &st.playfadeflag, &st.recendmark, &st.go);
             }
 
             osamp1 = 0.0;
             osamp2 = 0.0;
             kh_calculate_sync_output(
-                osamp1, &o1prev, &out1, syncoutlet, &outPh, accuratehead, minloop,
-                maxloop, directionorig, frames, setloopsize);
+                osamp1, &o1prev, &out1, syncoutlet, &outPh, st.accuratehead, st.minloop,
+                st.maxloop, st.directionorig, st.frames, setloopsize);
             *out2++ = osamp2;
             o2prev = osamp2;
 
-            if (record) {
-                if ((recordfade < globalramp) && (globalramp > 0.0)) {
+            if (st.record) {
+                if ((st.recordfade < st.globalramp) && (st.globalramp > 0.0)) {
                     recin1 = kh_ease_record(
-                        recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag,
-                        globalramp, recordfade);
-                    if (pchans > 1) {
+                        recin1 + ((double)b[playhead * st.pchans]) * st.overdubamp, st.recfadeflag,
+                        st.globalramp, st.recordfade);
+                    if (st.pchans > 1) {
                         recin2 = kh_ease_record(
-                            recin2 + ((double)b[playhead * pchans + 1]) * overdubamp, recfadeflag,
-                            globalramp, recordfade);
+                            recin2 + ((double)b[playhead * st.pchans + 1]) * st.overdubamp, st.recfadeflag,
+                            st.globalramp, st.recordfade);
                     } else {
                         recin2 = recin1;
                     }
                 } else {
-                    recin1 += ((double)b[playhead * pchans]) * overdubamp;
-                    if (pchans > 1) {
-                        recin2 += ((double)b[playhead * pchans + 1]) * overdubamp;
+                    recin1 += ((double)b[playhead * st.pchans]) * st.overdubamp;
+                    if (st.pchans > 1) {
+                        recin2 += ((double)b[playhead * st.pchans + 1]) * st.overdubamp;
                     } else {
                         recin2 = recin1;
                     }
                 }
 
                 kh_process_initial_loop_ipoke_recording_stereo(
-                    b, pchans, &recordhead, playhead, recin1, recin2, &pokesteps, &writeval1, &writeval2,
-                    direction, directionorig, maxhead, frames); // ~ipoke end
-                if (globalramp) // realtime ramps for record on/off
+                    b, st.pchans, &x->timing.recordhead, playhead, recin1, recin2, &st.pokesteps, &writeval1, &writeval2,
+                    direction, st.directionorig, st.maxhead, st.frames); // ~ipoke end
+                if (st.globalramp) // realtime ramps for record on/off
                 {
-                    if (recordfade < globalramp) {
-                        recordfade++;
-                        if ((recfadeflag) && (recordfade >= globalramp)) {
+                    if (st.recordfade < st.globalramp) {
+                        st.recordfade++;
+                        if ((st.recfadeflag) && (st.recordfade >= st.globalramp)) {
                             kh_process_recording_fade_completion(
-                                recfadeflag, &recendmark, &record, &triginit, &jumpflag,
-                                &loopdetermine, &recordfade, directionorig, &maxloop,
-                                maxhead, frames);
-                            recfadeflag = 0;
+                                st.recfadeflag, &st.recendmark, &st.record, &st.triginit, &st.jumpflag,
+                                &st.loopdetermine, &st.recordfade, st.directionorig, &st.maxloop,
+                                st.maxhead, st.frames);
+                            st.recfadeflag = 0;
                         }
                     }
                 } else {
-                    if (recfadeflag) {
+                    if (st.recfadeflag) {
                         kh_process_recording_fade_completion(
-                            recfadeflag, &recendmark, &record, &triginit, &jumpflag,
-                            &loopdetermine, &recordfade, directionorig, &maxloop, maxhead,
-                            frames);
-                        recfadeflag = 0;
+                            st.recfadeflag, &st.recendmark, &st.record, &st.triginit, &st.jumpflag,
+                            &st.loopdetermine, &st.recordfade, st.directionorig, &st.maxloop, st.maxhead,
+                            st.frames);
+                        st.recfadeflag = 0;
                     }
                 } //
-                recordhead = playhead;
+                x->timing.recordhead = playhead;
                 dirt = 1;
             }
-            directionprev = direction;
+            st.directionprev = direction;
         }
-        if (ovdbdif != 0.0)
-            overdubamp = overdubamp + ovdbdif;
+        if (st.ovdbdif != 0.0)
+            st.overdubamp = st.overdubamp + st.ovdbdif;
 
-        initialhigh = (dirt) ? maxloop : initialhigh; // recordhead ??
+        st.initialhigh = (dirt) ? st.maxloop : st.initialhigh; // recordhead ??
     }
 
     // Use helper function for cleanup
-    kh_cleanup_perform(x, buf, b, dirt, go);
+    kh_cleanup_perform(x, buf, b, dirt, st.go);
 
     // Store channel-specific variables for stereo
     x->audio.o1prev = o1prev;
@@ -3180,8 +3242,8 @@ void karma_stereo_perform(
     x->audio.writeval1 = writeval1;
     x->audio.writeval2 = writeval2;
 
-    // Store common state variables using macro
-    KARMA_STORE_COMMON_STATE(x);
+    // Store common state variables back into the object
+    kh_store_perform_state(x, &st);
 
     return;
 
@@ -3280,7 +3342,7 @@ void karma_poly_perform(
     control_state_t   statecontrol;
     switchramp_type_t snrtype;
     interp_type_t     interp;
-    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize = 0;
+    long frames, startloop, endloop, playhead, minloop, maxloop, setloopsize = 0;
 
     // Use helper function to setup buffer and load initial state
     t_buffer_obj* buf;
@@ -3292,7 +3354,6 @@ void karma_poly_perform(
     statecontrol = x->state.statecontrol;
     playfadeflag = x->fade.playfadeflag;
     recfadeflag = x->fade.recfadeflag;
-    recordhead = x->timing.recordhead;
     alternateflag = x->state.alternateflag;
     pchans = x->buffer.bchans;
     frames = x->buffer.bframes;
@@ -3333,6 +3394,10 @@ void karma_poly_perform(
     snrtype = x->fade.snrtype;
     maxhead = x->timing.maxhead;
     pokesteps = x->audio.pokesteps;
+    recendmark = x->state.recendmark;   // must persist across vectors (see store below);
+                                        // kh_process_state_control only writes it in the
+                                        // ALT states, so without this load it would be a
+                                        // stale/uninitialised read during record fades
 
     // Process state control using helper function
     kh_process_state_control(
@@ -3348,7 +3413,7 @@ void karma_poly_perform(
 
         kh_process_direction_change(x, b, directionprev, direction);
         if (directionprev != direction && record && globalramp) {
-            recordhead = -1;
+            x->timing.recordhead = -1;
         }
 
         kh_process_record_toggle(x, b, accuratehead, direction, speed, &dirt);
@@ -3360,7 +3425,7 @@ void karma_poly_perform(
                     x, b, &accuratehead, direction, &setloopsize, &wrapflag, &recendmark,
                     triginit, jumpflag);
                 if (triginit) {
-                    recordhead = -1;
+                    x->timing.recordhead = -1;
                     triginit = 0;
                     if (record && !recendmark) {
                         recordfade = 0;
@@ -3435,14 +3500,14 @@ void karma_poly_perform(
 
                 for (i = 0; i < nchans; i++) {
                     long chan_offset = i % pchans;
-                    if (recordhead != -1) {
+                    if (x->timing.recordhead != -1) {
                         coeff1 = 1.0 / (pokesteps + 1.0);
                         if ((recordfade >= globalramp) || !recfadeflag) {
                             writeval1 = recin[i];
                         } else {
-                            writeval1 = (((double)b[recordhead * pchans + chan_offset]) * (1.0 - coeff1)) + (recin[i] * coeff1);
+                            writeval1 = (((double)b[x->timing.recordhead * pchans + chan_offset]) * (1.0 - coeff1)) + (recin[i] * coeff1);
                         }
-                        b[recordhead * pchans + chan_offset] = writeval1;
+                        b[x->timing.recordhead * pchans + chan_offset] = writeval1;
                     }
                 }
             }
@@ -3495,10 +3560,10 @@ void karma_poly_perform(
                         recin[i] += ((double)b[playhead * pchans + chan_offset]) * overdubamp;
                     }
 
-                    if (recordhead != -1) {
+                    if (x->timing.recordhead != -1) {
                         coeff1 = 1.0 / (pokesteps + 1.0);
-                        writeval1 = (((double)b[recordhead * pchans + chan_offset]) * (1.0 - coeff1)) + (recin[i] * coeff1);
-                        b[recordhead * pchans + chan_offset] = writeval1;
+                        writeval1 = (((double)b[x->timing.recordhead * pchans + chan_offset]) * (1.0 - coeff1)) + (recin[i] * coeff1);
+                        b[x->timing.recordhead * pchans + chan_offset] = writeval1;
                     }
                 }
 
@@ -3515,15 +3580,26 @@ void karma_poly_perform(
     if (nchans > 2) { x->audio.o3prev = oprev[2]; x->audio.o3dif = odif[2]; }
     if (nchans > 3) { x->audio.o4prev = oprev[3]; x->audio.o4dif = odif[3]; }
 
-    // Note: poly_perform has a unique variable loading/storing pattern due to
-    // multichannel handling, so it doesn't use the KARMA_STORE_COMMON_STATE macro
+    // NOTE: poly_perform keeps its own scalar state in plain locals and does its own
+    // load/store, rather than sharing the t_perform_state struct + helpers used by the
+    // mono/stereo routines. Remaining differences from kh_load/store_perform_state:
+    //   - overdub is loaded un-swapped and applied without the ovdbdif ramp that
+    //     mono/stereo use (no per-sample overdub smoothing here) - still divergent;
+    //   - maxhead/pokesteps/minloop/directionorig are read-only in poly (never mutated in
+    //     this routine), so they are intentionally not stored back; speedfloat is stored;
+    //   - recordprev is set to the current record value rather than a tracked previous;
+    //   - poly has no initial-loop-creation branch, so it does not produce/persist the
+    //     initiallow/initialhigh loop-determination state.
+    // recendmark and maxloop ARE now loaded and stored (they are mutated across vectors by
+    // kh_process_state_control / kh_process_recording_fade_completion during record fades).
+    // These divergences are preserved as-is; reconciling them with mono/stereo is a
+    // behavioural change that needs validation in Max, not a mechanical refactor.
     x->state.record = record;
     x->state.recordprev = record;
     x->state.go = go;
     x->state.statecontrol = statecontrol;
     x->fade.playfadeflag = playfadeflag;
     x->fade.recfadeflag = recfadeflag;
-    x->timing.recordhead = recordhead;
     x->state.alternateflag = alternateflag;
     x->state.directionprev = direction;
     x->speedfloat = speedfloat;
@@ -3534,11 +3610,14 @@ void karma_poly_perform(
     x->audio.overdubprev = overdubprev;
     x->loop.startloop = startloop;
     x->loop.endloop = endloop;
+    x->loop.maxloop = maxloop;          // kh_process_recording_fade_completion can update
+                                        // maxloop during an overdub-stop fade; persist it
     x->fade.playfade = playfade;
     x->fade.recordfade = recordfade;
     x->fade.snrfade = snrfade;
     x->state.triginit = triginit;
     x->state.jumpflag = jumpflag;
+    x->state.recendmark = recendmark;   // persist (paired with the load above)
 
     if (dirt)
         buffer_setdirty(buf);
@@ -3756,6 +3835,8 @@ void kh_process_ipoke_recording(
     if (*recordhead < 0) {
         *recordhead = playhead;
         *pokesteps = 0.0;
+        *writeval1 = 0.0;   // reset persistent accumulator on record-head (re)start,
+                            // else the writeval1 += recin1 below sums onto stale data
     }
 
     if (*recordhead == playhead) {
@@ -3857,6 +3938,7 @@ static inline void kh_process_initial_loop_ipoke_recording(
     if (*recordhead < 0) {
         *recordhead = playhead;
         *pokesteps = 0.0;
+        *writeval1 = 0.0;   // reset persistent accumulator on record-head (re)start
     }
 
     if (*recordhead == playhead) {
@@ -4064,6 +4146,8 @@ void kh_process_ipoke_recording_stereo(
     if (*recordhead < 0) {
         *recordhead = playhead;
         *pokesteps = 0.0;
+        *writeval1 = *writeval2 = 0.0;   // reset persistent accumulators on record-head
+                                         // (re)start, else the += below sum onto stale data
     }
 
     if (*recordhead == playhead) {
@@ -4122,6 +4206,7 @@ static inline void kh_process_initial_loop_ipoke_recording_stereo(
     if (*recordhead < 0) {
         *recordhead = playhead;
         *pokesteps = 0.0;
+        *writeval1 = *writeval2 = 0.0;   // reset persistent accumulators on record-head (re)start
     }
 
     if (*recordhead == playhead) {
