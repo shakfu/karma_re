@@ -15,17 +15,17 @@
 #include "scenarios.h"   // impl-agnostic runner (uses the symbols above)
 
 // Construct a fresh reference karma~ bound to a zeroed mock buffer.
-static t_karma *construct(long frames, long chans, double sr)
+static t_karma *construct(long frames, long bchans, long ochans, double sr)
 {
     static int classed = 0;
     if (!classed) { ext_main(NULL); classed = 1; }
 
-    float *bufdata = (float *)calloc((size_t)(frames * chans), sizeof(float));
-    mock_buffer_install(bufdata, frames, chans, sr);
+    float *bufdata = (float *)calloc((size_t)(frames * bchans), sizeof(float));
+    mock_buffer_install(bufdata, frames, bchans, sr);
 
     t_atom argv[2];
     atom_setsym(&argv[0], gensym("mockbuf"));
-    atom_setlong(&argv[1], chans);
+    atom_setlong(&argv[1], ochans);
     t_karma *x = (t_karma *)karma_new(gensym("karma~"), 2, argv);
     if (!x) return NULL;
 

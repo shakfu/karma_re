@@ -30,14 +30,19 @@ typedef struct { long at; int op; double arg; } sc_event;
 typedef struct {
     const char    *name;
     long           frames;   // buffer frames per channel
-    long           chans;    // buffer/object channels (1 / 2 / 4)
+    long           chans;    // object/output channels (1 / 2 / 4); drives routine dispatch + I/O
     double         sr;
     double         in_freq;  // base input sine freq (Hz); channel c uses freq*(c+1)
     double         in_amp;
     long           total;    // total samples to run (multiple of SCN_VS)
     const sc_event *events;
     int            nevents;
+    long           bchans;   // buffer channels; 0 => same as `chans`. Set < chans to
+                             // exercise the pchans<ochans paths (extra outs silenced).
 } scenario;
+
+// buffer channels for a scenario (defaults to the object channel count).
+static inline long scn_bchans(const scenario *sc) { return sc->bchans ? sc->bchans : sc->chans; }
 
 // ----- catalogue -----------------------------------------------------------
 // Loop length = time recorded before OP_PLAY, so overdub passes cross the loop
@@ -94,6 +99,17 @@ static const scenario g_scenarios[] = {
     { "jump",                 16384, 1, 48000.0, 220.0, 0.25, 24576, ev_jump,             4 },
     { "stop",                 16384, 1, 48000.0, 220.0, 0.25, 24576, ev_stop,             3 },
     { "window",               16384, 1, 48000.0, 220.0, 0.25, 32768, ev_window,           4 },
+
+    // pchans < ochans: buffer has fewer channels than the object's outputs, so
+    // only min(pchans,ochans) channels are recorded and the extra outputs are
+    // silenced. These exercise the per-channel guards that the matched-channel
+    // scenarios above never reach. (trailing field = buffer channels.)
+    { "rec_play_st_monobuf",  16384, 2, 48000.0, 220.0, 0.25, 24576, ev_rec_play,         2, 1 },
+    { "overdub_st_monobuf",   16384, 2, 48000.0, 220.0, 0.25, 49152, ev_overdub_boundary, 5, 1 },
+    { "reverse_st_monobuf",   16384, 2, 48000.0, 220.0, 0.25, 32768, ev_reverse,          3, 1 },
+    { "rec_play_quad_stbuf",  16384, 4, 48000.0, 220.0, 0.25, 24576, ev_rec_play,         2, 2 },
+    { "rec_play_quad_3buf",   16384, 4, 48000.0, 220.0, 0.25, 24576, ev_rec_play,         2, 3 },
+    { "overdub_quad_stbuf",   16384, 4, 48000.0, 220.0, 0.25, 49152, ev_overdub_boundary, 5, 2 },
 };
 #define N_SCENARIOS ((int)(sizeof(g_scenarios)/sizeof(g_scenarios[0])))
 
@@ -106,7 +122,7 @@ static const scenario g_scenarios[] = {
 
 typedef void (*perform_fn)(t_karma *x, double **ins, long nins,
                            double **outs, long nouts, long vcount);
-typedef t_karma *(*construct_fn)(long frames, long chans, double sr);
+typedef t_karma *(*construct_fn)(long frames, long bchans, long ochans, double sr);
 // Optional: emit the data/report outlet once, so the harness can capture it
 // (the reference's karma_clock_list / the shell's karma_re_clock_list). NULL =
 // this impl has no report outlet (e.g. the core).
@@ -201,7 +217,7 @@ static void run_all_scenarios(construct_fn make, perform_fn perform, report_fn r
     for (int s = 0; s < N_SCENARIOS; s++) {
         const scenario *sc = &g_scenarios[s];
         if (sc->chans > max_chans) { printf("  skip %s (%ld ch)\n", sc->name, sc->chans); continue; }
-        t_karma *x = make(sc->frames, sc->chans, sc->sr);
+        t_karma *x = make(sc->frames, scn_bchans(sc), sc->chans, sc->sr);
         if (!x) { fprintf(stderr, "construct failed for %s\n", sc->name); continue; }
         snprintf(path, sizeof(path), "%s_%s.bin", impl, sc->name);
         FILE *f = fopen(path, "wb");

@@ -17,17 +17,17 @@
 #define SCN_DATA_ONLY
 #include "scenarios.h"        // scenario catalogue (data only)
 
-static t_karma_re *construct(long frames, long chans, double sr)
+static t_karma_re *construct(long frames, long bchans, long ochans, double sr)
 {
     static int classed = 0;
     if (!classed) { ext_main(NULL); classed = 1; }
 
-    float *data = (float *)calloc((size_t)(frames * chans), sizeof(float));
-    mock_buffer_install(data, frames, chans, sr);
+    float *data = (float *)calloc((size_t)(frames * bchans), sizeof(float));
+    mock_buffer_install(data, frames, bchans, sr);
 
     t_atom argv[2];
     atom_setsym(&argv[0], gensym("mockbuf"));
-    atom_setlong(&argv[1], chans);
+    atom_setlong(&argv[1], ochans);
     t_karma_re *x = (t_karma_re *)karma_re_new(gensym("karma_re~"), 2, argv);
     if (!x) return NULL;
 
@@ -123,7 +123,7 @@ int main(void)
     char path[512];
     for (int s = 0; s < N_SCENARIOS; s++) {
         const scenario *sc = &g_scenarios[s];
-        t_karma_re *x = construct(sc->frames, sc->chans, sc->sr);
+        t_karma_re *x = construct(sc->frames, scn_bchans(sc), sc->chans, sc->sr);
         if (!x) continue;
         snprintf(path, sizeof(path), "shell_%s.bin", sc->name);
         FILE *f = fopen(path, "wb");

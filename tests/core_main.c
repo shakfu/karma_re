@@ -13,19 +13,19 @@ static void *core_lock(void *ctx)     { return ((mock_buffer *)ctx)->data; }
 static void  core_unlock(void *ctx)   { (void)ctx; }
 static void  core_setdirty(void *ctx) { (void)ctx; }
 
-static t_karma *construct(long frames, long chans, double sr)
+static t_karma *construct(long frames, long bchans, long ochans, double sr)
 {
-    float *data = (float *)calloc((size_t)(frames * chans), sizeof(float));
-    mock_buffer_install(data, frames, chans, sr);
+    float *data = (float *)calloc((size_t)(frames * bchans), sizeof(float));
+    mock_buffer_install(data, frames, bchans, sr);
 
     t_karma *x = (t_karma *)malloc(sizeof(t_karma));
-    karma_core_init(x, chans, sr, SCN_VS);
+    karma_core_init(x, ochans, sr, SCN_VS);
     x->bufio.lock      = core_lock;
     x->bufio.unlock    = core_unlock;
     x->bufio.set_dirty = core_setdirty;
     x->bufio.ctx       = mock_buffer_get();
     x->bufio.frames    = frames;
-    x->bufio.chans     = chans;
+    x->bufio.chans     = bchans;
     x->bufio.sr        = sr;
     karma_core_set_dims(x);
 

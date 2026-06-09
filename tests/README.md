@@ -40,7 +40,13 @@ now refactored directly; the harness below is what keeps it honest.
 
 `make` builds the core driver against that library and confirms it: **mono,
 stereo, and quad all match the reference sample-for-sample (output + buffer)
-across every scenario**, including the multichannel overdub-boundary cases.
+across every scenario**, including the multichannel overdub-boundary cases and
+the `pchans < ochans` cases (buffer with fewer channels than the object outputs:
+`*_monobuf` / `*_stbuf` / `*_3buf`), which exercise the per-channel guards.
+
+The core's perform DSP is a single channel-generic routine (the reference shipped
+three unrolled mono/stereo/quad copies); `make bench` reports its perform-only
+throughput against the reference's unrolled routines.
 
 The drivers also capture the **data/report outlet** at the end of each scenario
 (via the stub's `outlet_list` capture). `make shelldiff` diffs the shell's

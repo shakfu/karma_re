@@ -73,11 +73,11 @@ typedef enum {
 } karma_statehuman;
 
 // Coverage note: the control methods, the central `switch (statecontrol)`
-// dispatch, and the recfadeflag/playfadeflag equality tests use these names. The
-// numeric `case` labels inside the per-sample `switch (recendmark)` /
-// `switch (playfadeflag)` blocks are still bare ints -- those blocks repeat ~28x
-// across the three perform routines at differing indentation and collapse to a
-// single copy when the routines are unified, so they are named there rather than
-// converted 28x here.
+// dispatch, the `switch (playfadeflag)` blocks, and the recfadeflag/playfadeflag
+// equality tests all use these names. The four small `switch (recendmark)`
+// fall-through tables inside the initial-loop path still use bare 0..4 case
+// labels (their values map directly onto RECEND_* above) -- they are a compact,
+// localised state table cross-referenced here, left numeric to avoid obscuring
+// the deliberate case fall-through.
 
 #endif // KARMA_STATE_H

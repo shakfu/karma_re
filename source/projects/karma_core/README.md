@@ -13,8 +13,14 @@ supplies the sample buffer through a small callback interface
   `karma_core_set_dims`.
 - `karma_core.c` — **hand-owned source**. Originally extracted verbatim from the
   reference, now refactored directly. Edit it freely as long as the harness
-  stays green. Holds the control methods, the perform routines, and
-  init/configure; includes the kernel headers below.
+  stays green. Holds the control methods, the perform engine, and init/configure;
+  includes the kernel headers below. The reference's three near-identical
+  perform routines (mono/stereo/quad) are unified into one channel-generic
+  `karma_perform` that loops over `min(buffer, output)` channels; the three
+  public `karma_*_perform` entry points are thin forwarders to it.
+- `karma_state.h` — named enums for the control/perform state machine
+  (`statecontrol` / `recfadeflag` / `playfadeflag` / `recendmark` / `statehuman`),
+  replacing the reference's magic ints value-for-value.
 - `karma_interp.h` — buffer-read interpolation kernels: the LINEAR/CUBIC/SPLINE
   macros and `interp_index` (the four-neighbour index/wrap math).
 - `karma_ipoke.h` — record/ipoke write kernels: `ease_record`, `ease_switchramp`,

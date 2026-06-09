@@ -18,7 +18,7 @@ CFLAGS    := -g -O2 -Wall -Wno-cast-function-type-mismatch
 LDFLAGS   := -lm
 BUILD     := build
 
-.PHONY: all check diff unit shelldiff core shell k4diff oracle k4 difftool clean
+.PHONY: all check diff unit shelldiff core shell k4diff oracle k4 difftool bench clean
 all: check
 
 # Full check: core==reference, shell==reference, and kernel unit tests.
@@ -57,6 +57,10 @@ k4diff: $(BUILD)/oracle $(BUILD)/k4 $(BUILD)/difftool
 unit: $(BUILD)/unit
 	@echo "=== kernel unit tests ==="; cd $(BUILD) && ./unit
 
+# Perform-only throughput: unified core vs the reference's unrolled routines.
+bench: $(BUILD)/bench_core $(BUILD)/bench_ref
+	@cd $(BUILD) && ./bench_ref && ./bench_core
+
 oracle: $(BUILD)/oracle ; @cd $(BUILD) && ./oracle
 core:   $(BUILD)/core   ; @cd $(BUILD) && ./core
 shell:  $(BUILD)/shell  ; @cd $(BUILD) && ./shell
@@ -79,6 +83,12 @@ $(BUILD)/k4: k4_main.c max_stub.c max_stub.h scenarios.h | $(BUILD)
 
 $(BUILD)/difftool: diff.c | $(BUILD)
 	@clang $(CFLAGS) diff.c -o $@
+
+$(BUILD)/bench_core: bench_core.c $(COREDIR)/karma_core.c max_stub.c | $(BUILD)
+	@clang $(CFLAGS) $(INCLUDES) -I$(COREDIR) bench_core.c $(COREDIR)/karma_core.c max_stub.c $(LDFLAGS) -o $@
+
+$(BUILD)/bench_ref: bench_ref.c max_stub.c | $(BUILD)
+	@clang $(CFLAGS) $(INCLUDES) -I$(REFDIR) bench_ref.c max_stub.c $(LDFLAGS) -o $@
 
 $(BUILD):
 	@mkdir -p $(BUILD)
