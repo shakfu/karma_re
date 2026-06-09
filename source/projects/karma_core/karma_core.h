@@ -16,7 +16,8 @@
 #include <string.h>
 
 // --- scalar types the copied code expects (Max-free equivalents) -----------
-typedef long  t_ptr_int;
+// (Integer DSP state uses the standard int64_t directly; karma_core_api.h pulls
+// in <stdint.h>. Only the remaining Max-isms below need Max-free stand-ins.)
 typedef char  t_bool;
 typedef void  t_object;      // perform sig has an (unused) t_object* dsp64
 typedef void  t_buffer_obj;  // opaque buffer handle (the host's, via the iface)
@@ -32,10 +33,9 @@ typedef void  t_buffer_obj;  // opaque buffer handle (the host's, via the iface)
 #define CLAMP(a, lo, hi) ( (a)>(lo)?( (a)<(hi)?(a):(hi) ):(lo) )
 #endif
 
-// Interpolation kernels (verbatim from the reference)
-#define LINEAR_INTERP(f, x, y) (x + f*(y - x))
-#define CUBIC_INTERP(f, w, x, y, z) ((((0.5*(z - w) + 1.5*(x - y))*f + (w - 2.5*x + y + y - 0.5*z))*f + (0.5*(y - w)))*f + x)
-#define SPLINE_INTERP(f, w, x, y, z) (((-0.5*w + 1.5*x - 1.5*y + 0.5*z)*f*f*f) + ((w - 2.5*x + y + y - 0.5*z)*f*f) + ((-0.5*w + 0.5*y)*f) + x)
+// The interpolation kernels (LINEAR/CUBIC/SPLINE + interp_index) live in
+// karma_interp.h, and the ease/ipoke write kernels in karma_ipoke.h; karma_core.c
+// includes both after this header (so the scalar types above are in scope).
 
 // UI/clock plumbing is a no-op in the core (the host owns reporting/inlets).
 #define clock_delay(x, n) ((void)0)

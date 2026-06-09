@@ -90,7 +90,7 @@ static void test_ease_switchramp(void)
 // interp_index: 4 indices around playhead with loop wrapping.
 static void test_interp_index(void)
 {
-    t_ptr_int i0, i1, i2, i3;
+    int64_t i0, i1, i2, i3;
     long maxloop = 1000, fm1 = 2000;
 
     // forward, mid-loop: no wrap

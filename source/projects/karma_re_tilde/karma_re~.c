@@ -250,7 +250,6 @@ void karma_re_dsp64(t_karma_re *x, t_object *dsp64, short *count, double srate, 
     if (x->bufname) {
         kre_buf_setup(x, x->bufname);
         x->core.syncoutlet  = x->syncoutlet;
-        x->core.reportlist  = x->reportlist;
 
         long ochans = (long)x->core.ochans;
         x->core.speedconnect = ochans <= 1 ? count[1] : (ochans == 2 ? count[2] : count[4]);

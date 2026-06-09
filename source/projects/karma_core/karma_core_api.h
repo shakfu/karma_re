@@ -1,17 +1,24 @@
 // karma_core public API.
 //
 // This header declares the core state struct, the host buffer interface, and the
-// control + perform functions. It deliberately does NOT define the scalar types
-// it uses (t_ptr_int / t_bool / t_object) or any shim macros, so it can be
-// included either:
+// control + perform functions. Integer fields use the standard int64_t (pulled in
+// below); it deliberately does NOT define the remaining Max scalar types it uses
+// (t_bool / t_object) or any shim macros, so it can be included either:
 //   - by a Max host, after the real c74 headers (which provide those types), or
 //   - by the standalone core build, after karma_core.h (which provides them).
+//
+// int64_t (not the reference's pointer-sized int64_t, nor `long`) is used for
+// the buffer-index/sample-count fields: it is 64-bit on every platform, so the
+// struct layout is identical to the reference's int64_t on all Max targets
+// (incl. Windows LLP64, where `long` would be only 32-bit).
 //
 // Field names and float math mirror the reference karma~ exactly, so the core is
 // behaviourally identical (verified sample-for-sample by the offline harness).
 
 #ifndef KARMA_CORE_API_H
 #define KARMA_CORE_API_H
+
+#include <stdint.h>     // int64_t
 
 // --- host buffer interface -------------------------------------------------
 // The core never allocates or names the sample buffer; the host supplies it
@@ -39,12 +46,12 @@ typedef struct karma_core {
     double  playhead, maxhead, jumphead, selstart, selection;
     double  snrfade, overdubamp, overdubprev, speedfloat;
 
-    long    syncoutlet, moduloout, islooped;
+    long    syncoutlet;
 
-    t_ptr_int bframes, bchans, ochans, nchans;
-    t_ptr_int interpflag, recordhead, minloop, maxloop, startloop, endloop;
-    t_ptr_int pokesteps, recordfade, playfade, globalramp, snrramp, snrtype;
-    t_ptr_int reportlist, initiallow, initialhigh;
+    int64_t bframes, bchans, ochans, nchans;
+    int64_t interpflag, recordhead, minloop, maxloop, startloop, endloop;
+    int64_t pokesteps, recordfade, playfade, globalramp, snrramp, snrtype;
+    int64_t initiallow, initialhigh;
 
     short   speedconnect;
 
@@ -53,7 +60,7 @@ typedef struct karma_core {
 
     t_bool  stopallowed, go, record, recordprev, loopdetermine, alternateflag;
     t_bool  append, triginit, wrapflag, jumpflag;
-    t_bool  recordinit, initinit, initskip, buf_modified, clockgo;
+    t_bool  recordinit, initinit, initskip, buf_modified;
 } t_karma;
 
 // --- lifecycle / configuration ---------------------------------------------

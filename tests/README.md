@@ -31,12 +31,12 @@ objective confirmation of the overdub corruption.
 ## karma_core (Max-free)
 
 The extracted DSP library lives in `../source/projects/karma_core/`
-(`karma_core.{h,c}` + `gen_core.sh`). `karma_core.c` is **generated** from the
-reference by `gen_core.sh`: it copies the DSP helpers, control methods, and the
-mono/stereo/quad perform routines verbatim, then rewrites the Max dependencies --
-buffer~ access becomes a host callback interface (`karma_buffer_iface`), and the
-list-outlet/clock UI plumbing is elided. Field names and float math are
-unchanged, so it is behaviourally identical to the reference.
+(`karma_core.{h,c}`). `karma_core.c` is **hand-owned source**: it was originally
+extracted verbatim from the reference (the retired `gen_core.sh.orig` copied the
+DSP helpers, control methods, and the mono/stereo/quad perform routines, then
+rewrote the Max dependencies -- buffer~ access becomes a host callback interface
+(`karma_buffer_iface`), and the list-outlet/clock UI plumbing is elided). It is
+now refactored directly; the harness below is what keeps it honest.
 
 `make` builds the core driver against that library and confirms it: **mono,
 stereo, and quad all match the reference sample-for-sample (output + buffer)
@@ -49,8 +49,8 @@ The drivers also capture the **data/report outlet** at the end of each scenario
 math; it does not exercise the report *clock arming* (a Max scheduling concern
 with no offline equivalent).
 
-To re-extract after touching the reference:
-`(cd ../source/projects/karma_core && ./gen_core.sh) && make`.
+After any change to `karma_core.c`, re-run `make` (or `make check`) here and keep
+it green -- that differential is the safety net for the refactor.
 
 ## Roadmap
 
