@@ -258,6 +258,11 @@ void karma_re_dsp64(t_karma_re *x, t_object *dsp64, short *count, double srate, 
                     : (ochans == 2) ? (method)karma_re_stereo_perform
                                     : (method)karma_re_quad_perform;
         object_method(dsp64, gensym("dsp_add64"), x, perf, 0, NULL);
+
+        // First DSP-on enables the transport gate the reference sets in its own
+        // dsp64 (karma~.c): without it karma_stop / karma_jump stay gated off.
+        // The loop bounds are already initialised by kre_buf_setup above.
+        x->core.initinit = 1;
     }
 }
 

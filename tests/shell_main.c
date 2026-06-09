@@ -32,8 +32,7 @@ static t_karma_re *construct(long frames, long bchans, long ochans, double sr)
     if (!x) return NULL;
 
     short count[8] = {1,1,1,1,1,1,1,1};   // all inlets "connected" -> speed is a signal
-    karma_re_dsp64(x, NULL, count, sr, SCN_VS, 0);
-    x->core.initinit   = 1;   // enable jump/stop
+    karma_re_dsp64(x, NULL, count, sr, SCN_VS, 0);   // sets core.initinit (enables jump/stop)
     x->core.speedfloat = 1.0;
     return x;
 }
