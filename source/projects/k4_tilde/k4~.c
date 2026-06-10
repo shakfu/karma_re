@@ -926,6 +926,7 @@ static inline void kh_process_loop_initialization(
                 x->loop.maxloop = CLAMP((x->buffer.bframes - 1) - x->timing.maxhead, KARMA_MIN_LOOP_SIZE, x->buffer.bframes - 1);
                 *setloopsize = x->loop.maxloop - x->loop.minloop;
                 x->loop.startloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->timing.selstart * (*setloopsize));
+                x->loop.endloop = x->loop.startloop + (x->timing.selection * (*setloopsize));   // recompute endloop from new startloop/selection (matches forward branch + original karma~.c)
                 if (x->loop.endloop > (x->buffer.bframes - 1)) {
                     x->loop.endloop = ((x->buffer.bframes - 1) - (*setloopsize)) + (x->loop.endloop - x->buffer.bframes);
                     *wrapflag = 1;
@@ -2696,256 +2697,1046 @@ void karma_mono_perform(
     t_karma* x, t_object* dsp64, double** ins, long nins, double** outs, long nouts,
     long vcount, long flgs, void* usr)
 {
-    long syncoutlet = x->syncoutlet;
+    long    syncoutlet  = x->syncoutlet;
 
-    double* in1 = ins[0]; // mono in
-    double* in2 = ins[1]; // speed (if signal connected)
+    double *in1 = ins[0];                       // mono in
+    double *in2 = ins[1];                       // speed (if signal connected)
 
-    double* out1 = outs[0];                   // mono out
-    double* outPh = syncoutlet ? outs[1] : 0; // sync (if @syncout 1)
+    double *out1  = outs[0];                    // mono out
+    double *outPh = syncoutlet ? outs[1] : 0;   // sync (if @syncout 1)
 
-    long  n = vcount;
-    short speedinlet = x->speedconnect;
+    long    n = vcount;
+    short   speedinlet  = x->speedconnect;
 
-    t_perform_state st;
-    double speed, osamp1;
-    double o1prev, o1dif, writeval1, recin1;
-    t_bool dirt;
-    char  direction;
-    long  playhead, setloopsize = 0;
+    double accuratehead, maxhead, jumphead, srscale, speedsrscaled, recplaydif, pokesteps;
+    double speed, speedfloat, osamp1, overdubamp, overdubprev, ovdbdif, selstart, selection;
+    double o1prev, o1dif, frac, snrfade, globalramp, snrramp, writeval1, coeff1, recin1;
+    t_bool go, record, recordprev, alternateflag, loopdetermine, jumpflag, append, dirt, wrapflag, triginit;
+    char direction, directionprev, directionorig, playfadeflag, recfadeflag, recendmark;
+    control_state_t   statecontrol;
+    switchramp_type_t snrtype;
+    interp_type_t     interp;
+    long playfade, recordfade, i, interp0, interp1, interp2, interp3, pchans;
+    long frames, startloop, endloop, playhead, recordhead, minloop, maxloop, setloopsize;
+    long initiallow, initialhigh;
 
-    // Use helper function to setup buffer and load initial state
+    // Self-contained mono perform (ported verbatim from the reference karma~.c mono
+    // routine): all per-vector state lives in locals loaded here and stored at the end,
+    // so there is no x-> / local snapshot desync. Uses the kh_ low-level primitives.
     t_buffer_obj* buf;
-    float* b = kh_setup_perform_buffer(x, &buf, &st.record, &st.recordprev, &dirt);
+    float* b = kh_setup_perform_buffer(x, &buf, &record, &recordprev, &dirt);
     if (!b)
         goto zero;
 
-    // Load common state variables into the perform-state struct
-    kh_load_perform_state(x, &st, n);
+    o1prev          = x->audio.o1prev;
+    o1dif           = x->audio.o1dif;
+    writeval1       = x->audio.writeval1;
 
-    // Initialize performance variables using helper function
-    kh_initialize_perform_vars(x, &st.accuratehead, &playhead, &st.wrapflag);
+    go              = x->state.go;
+    statecontrol    = x->state.statecontrol;
+    playfadeflag    = x->fade.playfadeflag;
+    recfadeflag     = x->fade.recfadeflag;
+    recordhead      = x->timing.recordhead;
+    alternateflag   = x->state.alternateflag;
+    pchans          = x->buffer.bchans;
+    srscale         = x->timing.srscale;
+    frames          = x->buffer.bframes;
+    triginit        = x->state.triginit;
+    jumpflag        = x->state.jumpflag;
+    append          = x->state.append;
+    directionorig   = x->state.directionorig;
+    directionprev   = x->state.directionprev;
+    minloop         = x->loop.minloop;
+    maxloop         = x->loop.maxloop;
+    initiallow      = x->loop.initiallow;
+    initialhigh     = x->loop.initialhigh;
+    selection       = x->timing.selection;
+    loopdetermine   = x->state.loopdetermine;
+    startloop       = x->loop.startloop;
+    selstart        = x->timing.selstart;
+    endloop         = x->loop.endloop;
+    recendmark      = x->state.recendmark;
+    overdubamp      = x->audio.overdubprev;
+    overdubprev     = x->audio.overdubamp;
+    ovdbdif         = (overdubamp != overdubprev) ? ((overdubprev - overdubamp) / n) : 0.0;
+    recordfade      = x->fade.recordfade;
+    playfade        = x->fade.playfade;
+    accuratehead    = x->timing.playhead;
+    playhead        = trunc(accuratehead);
+    maxhead         = x->timing.maxhead;
+    wrapflag        = x->state.wrapflag;
+    jumphead        = x->timing.jumphead;
+    pokesteps       = x->audio.pokesteps;
+    snrfade         = x->fade.snrfade;
+    globalramp      = (double)x->fade.globalramp;
+    snrramp         = (double)x->fade.snrramp;
+    snrtype         = x->fade.snrtype;
+    interp          = x->audio.interpflag;
+    speedfloat      = x->speedfloat;
 
-    // Load channel-specific variables for mono
-    o1prev = x->audio.o1prev;
-    o1dif = x->audio.o1dif;
-    writeval1 = x->audio.writeval1;
-
-    // Process state control using helper function
-    kh_process_state_control(
-        x, &st.statecontrol, &st.record, &st.go, &st.triginit, &st.loopdetermine, &st.recordfade,
-        &st.recfadeflag, &st.playfade, &st.playfadeflag, &st.recendmark);
+    switch (statecontrol)   // "all-in-one 'switch' statement to catch and handle all(most) messages" - raja
+    {
+        case 0:             // case 0: zero
+            break;
+        case 1:             // case 1: record initial loop
+            record = go = triginit = loopdetermine = 1;
+            recordfade = recfadeflag = playfade = playfadeflag = statecontrol = 0;
+            break;
+        case 2:             // case 2: record alternateflag (wtf is 'alternateflag' ('rectoo') ?!)  // in to OVERDUB ??
+            recendmark = 3;
+            record = recfadeflag = playfadeflag = 1;
+            playfade = recordfade = statecontrol = 0;
+            break;
+        case 3:             // case 3: record off regular
+            recfadeflag = 1;
+            playfadeflag = 3;
+            playfade = recordfade = statecontrol = 0;
+            break;
+        case 4:             // case 4: play alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // out of OVERDUB ??
+            recendmark = 2;
+            recfadeflag = playfadeflag = 1;
+            playfade = recordfade = statecontrol = 0;
+            break;
+        case 5:             // case 5: play on regular
+            triginit = 1;   // ?!?!
+            statecontrol = 0;
+            break;
+        case 6:             // case 6: stop alternateflag (wtf is 'alternateflag' ('rectoo') ?!)    // after OVERDUB ??
+            playfade = recordfade = 0;
+            recendmark = playfadeflag = recfadeflag = 1;
+            statecontrol = 0;
+            break;
+        case 7:             // case 7: stop regular
+            if (record) {
+                recordfade = 0;
+                recfadeflag = 1;
+            }
+            playfade = 0;
+            playfadeflag = 1;
+            statecontrol = 0;
+            break;
+        case 8:             // case 8: jump
+            if (record) {
+                recordfade = 0;
+                recfadeflag = 2;
+            }
+            playfade = 0;
+            playfadeflag = 2;
+            statecontrol = 0;
+            break;
+        case 9:             // case 9: append
+            playfadeflag = 4;   // !! modified in perform loop switch case(s) for playing behind append
+            playfade = 0;
+            statecontrol = 0;
+            break;
+        case 10:            // case 10: special case append (what is special about it ?!)   // in to RECORD / OVERDUB ??
+            record = loopdetermine = alternateflag = 1;
+            snrfade = 0.0;
+            recordfade = recfadeflag = statecontrol = 0;
+            break;
+        case 11:            // case 11: record on regular (when ?! not looped ?!)
+            playfadeflag = 3;
+            recfadeflag = 5;
+            recordfade = playfade = statecontrol = 0;
+            break;          // !!
+    }
 
     //  raja notes:
     // 'snrfade = 0.0' triggers switch&ramp (declick play)
-    // 'recordhead = -1' triggers ipoke-interp cuts and accompanies buf~ fades
-    // (declick record)
+    // 'recordhead = -1' triggers ipoke-interp cuts and accompanies buf~ fades (declick record)
 
-    while (n--) {
+    while (n--)
+    {
         recin1 = *in1++;
-        speed = speedinlet ? *in2++ : st.speedfloat; // signal of float ?
+        speed = speedinlet ? *in2++ : speedfloat;   // signal of float ?
         direction = (speed > 0) ? 1 : ((speed < 0) ? -1 : 0);
 
-        // Handle direction changes using helper function
-        kh_process_direction_change(x, b, st.directionprev, direction);
-        if (st.directionprev != direction && st.record && st.globalramp) {
-            x->timing.recordhead = -1; // Special case handling for recordhead
+        // declick for change of 'dir'ection
+        if (directionprev != direction) {
+            if (record && globalramp) {
+                kh_ease_bufoff(frames - 1, b, pchans, recordhead, -direction, globalramp);
+                recordfade = recfadeflag = 0;
+                recordhead = -1;
+            }
+            snrfade = 0.0;
         }
-
-        // Handle record on/off transitions using helper function
-        kh_process_record_toggle(x, b, st.accuratehead, direction, speed, &dirt);
-        st.recordprev = st.record;
-
-        if (!st.loopdetermine) {
-            if (st.go) {
+        
+        if ((record - recordprev) < 0) {           // samp @record-off
+            if (globalramp)
+                kh_ease_bufoff(frames - 1, b, pchans, recordhead, direction, globalramp);
+            //initialhigh = loopdetermine ? recordhead : initialhigh;
+            recordhead = -1;
+            dirt = 1;
+        } else if ((record - recordprev) > 0) {    // samp @record-on
+            recordfade = recfadeflag = 0;
+            if (speed < 1.0)
+                snrfade = 0.0;
+            if (globalramp)
+                kh_ease_bufoff(frames - 1, b, pchans, accuratehead, -direction, globalramp);
+        }
+        recordprev = record;
+        
+        if (!loopdetermine)
+        {
+            if (go)
+            {
                 /*
-                calculate_head(st.directionorig, st.maxhead, st.frames, st.minloop,
-                selstart, selection, direction, st.globalramp, &b, st.pchans, st.record,
-                st.jumpflag, jumphead, &st.maxloop, &setloopsize, &st.accuratehead,
-                &st.startloop, &st.endloop, &st.wrapflag, &x->timing.recordhead, &st.snrfade, &st.append,
-                &st.alternateflag, &st.recendmark, &st.triginit, &speedsrscaled,
-                &st.recordfade, &st.recfadeflag);
+                calculate_head(directionorig, maxhead, frames, minloop, selstart, selection, direction, globalramp, &b, pchans, record, jumpflag, jumphead, &maxloop, &setloopsize, &accuratehead, &startloop, &endloop, &wrapflag, &recordhead, &snrfade, &append, &alternateflag, &recendmark, &triginit, &speedsrscaled, &recordfade, &recfadeflag);
                 */
-
-                // Handle loop initialization and calculation
-                kh_process_loop_initialization(
-                    x, b, &st.accuratehead, direction, &setloopsize, &st.wrapflag, &st.recendmark,
-                    st.triginit, st.jumpflag);
-                if (st.triginit) {
-                    x->timing.recordhead = -1;
-                    st.triginit = 0;
-                    if (st.record && !st.recendmark) {
-                        st.recordfade = 0;
-                        st.recfadeflag = 0;
-                    }
-                } else { // jump-based constraints (outside 'window')
-                    setloopsize = st.maxloop - st.minloop;
-
-                    // Handle loop boundary wrapping and jumping
-                    kh_process_loop_boundary(
-                        x, b, &st.accuratehead, speed, direction, setloopsize, st.wrapflag,
-                        st.jumpflag);
-
-                    // Clear jumpflag if conditions are met
-                    if (st.jumpflag) {
-                        if (st.wrapflag) {
-                            if ((st.accuratehead < st.endloop) || (st.accuratehead > st.startloop))
-                                st.jumpflag = 0;
+                
+                if (triginit)
+                {
+                    if (recendmark)  // calculate end of loop
+                    {
+                        if (directionorig >= 0)
+                        {
+                            maxloop = CLAMP(maxhead, 4096, frames - 1); // why 4096 ??
+                            setloopsize = maxloop - minloop;
+                            accuratehead = startloop = minloop + (selstart * setloopsize);
+                            endloop = startloop + (selection * setloopsize);
+                            if (endloop > maxloop) {
+                                endloop = endloop - (setloopsize + 1);
+                                wrapflag = 1;
+                            } else {
+                                wrapflag = 0;
+                            }
+                            if (direction < 0) {
+                                if (globalramp)
+                                    kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                            }
                         } else {
-                            if ((st.accuratehead < st.endloop) && (st.accuratehead > st.startloop))
-                                st.jumpflag = 0;
+                            maxloop = CLAMP((frames - 1) - maxhead, 4096, frames - 1);
+                            setloopsize = maxloop - minloop;    // ((frames - 1) - setloopsize - minloop)   // ??
+                            startloop = ((frames - 1) - setloopsize) + (selstart * setloopsize);    // ((frames - 1) - maxloop) + (selstart * maxloop);   // ??
+                            accuratehead = endloop = startloop + (selection * setloopsize);         // startloop + (selection * maxloop);   ??
+                            if (endloop > (frames - 1)) {
+                                endloop = ((frames - 1) - setloopsize) + (endloop - frames);
+                                wrapflag = 1;
+                            } else {
+                                wrapflag = 0;
+                            }
+                            accuratehead = endloop;
+                            if (direction > 0) {
+                                if (globalramp)
+                                    kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                            }
+                        }
+                        if (globalramp)
+                            kh_ease_bufoff(frames - 1, b, pchans, maxhead, -direction, globalramp);
+                        recordhead = -1;
+                        snrfade = 0.0;
+                        triginit = 0;
+                        append = alternateflag = recendmark = 0;
+                    } else {    // jump / play (inside 'window')
+                        setloopsize = maxloop - minloop;
+                        if (jumpflag)
+                            accuratehead = (directionorig >= 0) ? ((jumphead * setloopsize) + minloop) : (((frames - 1) - maxloop) + (jumphead * setloopsize));
+                        else
+                            accuratehead = (direction < 0) ? endloop : startloop;
+                        if (record) {
+                            if (globalramp) {
+                                kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                recordfade = 0;
+                            }
+                            recordhead = -1;
+                            recfadeflag = 0;
+                        }
+                        snrfade = 0.0;
+                        triginit = 0;
+                    }
+                } else {        // jump-based constraints (outside 'window')
+                    setloopsize = maxloop - minloop;
+                    speedsrscaled = speed * srscale;
+                    
+                    if (record)
+                        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
+                    accuratehead = accuratehead + speedsrscaled;
+                    
+                    if (jumpflag)
+                    {
+                        if (wrapflag) {
+                            if ((accuratehead < endloop) || (accuratehead > startloop))
+                                jumpflag = 0;
+                        } else {
+                            if ((accuratehead < endloop) && (accuratehead > startloop))
+                                jumpflag = 0;
+                        }
+                        if (directionorig >= 0)
+                        {
+                            if (accuratehead > maxloop)
+                            {
+                                accuratehead = accuratehead - setloopsize;
+                                snrfade = 0.0;
+                                if (record) {
+                                    if (globalramp) {
+                                        kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                        recordfade = 0;
+                                    }
+                                    recfadeflag = 0;
+                                    recordhead = -1;
+                                }
+                            } else if (accuratehead < 0.0) {
+                                accuratehead = maxloop + accuratehead;
+                                snrfade = 0.0;
+                                if (record) {
+                                    if (globalramp) {
+                                        kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                        recordfade = 0;
+                                    }
+                                    recfadeflag = 0;
+                                    recordhead = -1;
+                                }
+                            }
+                        } else {
+                            if (accuratehead > (frames - 1))
+                            {
+                                accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...((frames - 1) - maxloop)...   // ??
+                                snrfade = 0.0;
+                                if (record) {
+                                    if (globalramp) {
+                                        kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                        recordfade = 0;
+                                    }
+                                    recfadeflag = 0;
+                                    recordhead = -1;
+                                }
+                            } else if (accuratehead < ((frames - 1) - maxloop)) {
+                                accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...((frames - 1) - maxloop)... // ??
+                                snrfade = 0.0;
+                                if (record) {
+                                    if (globalramp) {
+                                        kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                        recordfade = 0;
+                                    }
+                                    recfadeflag = 0;
+                                    recordhead = -1;
+                                }
+                            }
+                        }
+                    } else {    // regular 'window' / 'position' constraints
+                        if (wrapflag)
+                        {
+                            if ((accuratehead > endloop) && (accuratehead < startloop))
+                            {
+                                accuratehead = (direction >= 0) ? startloop : endloop;
+                                snrfade = 0.0;
+                                if (record) {
+                                    if (globalramp) {
+                                        kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                        recordfade = 0;
+                                    }
+                                    recfadeflag = 0;
+                                    recordhead = -1;
+                                }
+                            } else if (directionorig >= 0) {
+                                if (accuratehead > maxloop)
+                                {
+                                    accuratehead = accuratehead - setloopsize;  // fixed position ??
+                                    snrfade = 0.0;
+                                    if (record) {
+                                        if (globalramp) {
+                                            kh_ease_bufoff(frames - 1, b, pchans, maxloop, -direction, globalramp);
+                                            recordfade = 0;
+                                        }
+                                        recfadeflag = 0;
+                                        recordhead = -1;
+                                    }
+                                }
+                                else if (accuratehead < 0.0)
+                                {
+                                    accuratehead = maxloop + setloopsize;       // !! this is surely completely wrong ??
+                                    snrfade = 0.0;
+                                    if (record) {
+                                        if (globalramp) {
+                                            kh_ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
+                                            recordfade = 0;
+                                        }
+                                        recfadeflag = 0;
+                                        recordhead = -1;
+                                    }
+                                }
+                            } else {    // reverse
+                                if (accuratehead < ((frames - 1) - maxloop))
+                                {
+                                    accuratehead = (frames - 1) - (((frames - 1) - setloopsize) - accuratehead);    // ...- maxloop)... // ??
+                                    snrfade = 0.0;
+                                    if (record)
+                                    {
+                                        if (globalramp) {
+                                            kh_ease_bufoff(frames - 1, b, pchans, ((frames - 1) - maxloop), -direction, globalramp);
+                                            recordfade = 0;
+                                        }
+                                        recfadeflag = 0;
+                                        recordhead = -1;
+                                    }
+                                } else if (accuratehead > (frames - 1)) {
+                                    accuratehead = ((frames - 1) - setloopsize) + (accuratehead - (frames - 1));    // ...- maxloop)...   // ??
+                                    snrfade = 0.0;
+                                    if (record) {
+                                        if (globalramp) {
+                                            kh_ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);
+                                            recordfade = 0;
+                                        }
+                                        recfadeflag = 0;
+                                        recordhead = -1;
+                                    }
+                                }
+                            }
+                        } else {    // (not wrapflag)
+                            if ((accuratehead > endloop) || (accuratehead < startloop))
+                            {
+                                accuratehead = (direction >= 0) ? startloop : endloop;
+                                snrfade = 0.0;
+                                if (record) {
+                                    if (globalramp) {
+                                        kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                        recordfade = 0;
+                                    }
+                                    recfadeflag = 0;
+                                    recordhead = -1;
+                                }
+                            }
                         }
                     }
                 }
 
                 /* calculate_head() to here */
-
-                // Calculate interpolation and get output sample
-                osamp1 = kh_calculate_interpolation_fraction_and_osamp(
-                    st.accuratehead, direction, b, st.pchans, st.interp, st.directionorig, st.maxloop, st.frames, st.record);
-
-                // Process ramps and fades
-                osamp1 = kh_process_ramps_and_fades(
-                    osamp1, &o1prev, &o1dif, &st.snrfade, &st.playfade, st.globalramp, st.snrramp, st.snrtype,
-                    &st.playfadeflag, &st.go, &st.triginit, &st.jumpflag, &st.loopdetermine, st.record);
-
-            } else {
-                osamp1 = 0.0;
-            }
-
-            kh_calculate_sync_output(
-                osamp1, &o1prev, &out1, syncoutlet, &outPh, st.accuratehead, st.minloop,
-                st.maxloop, st.directionorig, st.frames, setloopsize);
-
-            /*
-             ~ipoke - originally by PA Tremblay:
-             http://www.pierrealexandretremblay.com/welcome.html (modded to
-             allow for 'selection' (window) and 'selstart' (position) to change
-             on the fly) raja's razor: simplest answer to everything was: recin1
-             = ease_record(recin1 + (b[playhead * st.pchans] * st.overdubamp),
-             st.recfadeflag, st.globalramp, st.recordfade); ...
-             ... placed at the beginning / input of ipoke~ code to apply
-             appropriate ramps to oldbuf + newinput (everything all-at-once) ...
-             ... allows ipoke~ code to work its sample-specific math / magic
-             accurately through the ducking / ramps even at high speed
-            */
-            if (st.record) {
-                if ((st.recordfade < st.globalramp) && (st.globalramp > 0.0))
-                    recin1 = kh_ease_record(
-                        recin1 + (((double)b[playhead * st.pchans]) * st.overdubamp),
-                        st.recfadeflag, st.globalramp, st.recordfade);
-                else
-                    recin1 += ((double)b[playhead * st.pchans]) * st.overdubamp;
-
-                kh_process_ipoke_recording(
-                    b, st.pchans, playhead, &x->timing.recordhead, recin1, st.overdubamp, st.globalramp,
-                    st.recordfade, st.recfadeflag, &st.pokesteps, &writeval1, &dirt);
-            } // ~ipoke end
-
-            kh_process_recording_fade(
-                st.globalramp, &st.recordfade, &st.recfadeflag, &st.record, &st.triginit, &st.jumpflag);
-            st.directionprev = direction;
-
-        } else { // initial loop creation
-                 // !! is 'loopdetermine' !!
-
-            if (st.go) {
-                if (st.triginit) {
-                    if (st.jumpflag) {
-                        kh_process_jump_logic(x, b, &st.accuratehead, &st.jumpflag, direction);
-                    } else if (st.append) { // append
-                        kh_process_initial_loop_creation(
-                            x, b, &st.accuratehead, direction, &st.triginit);
-                        if (!st.record)
-                            goto apned;
-                    } else { // trigger start of initial loop creation
-                        st.directionorig = direction;
-                        st.minloop = 0.0;
-                        st.maxloop = st.frames - 1;
-                        st.maxhead = st.accuratehead = (direction >= 0) ? st.minloop : st.maxloop;
-                        st.alternateflag = 1;
-                        x->timing.recordhead = -1;
-                        st.snrfade = 0.0;
-                        st.triginit = 0;
-                    }
+                
+                // interp ratio
+                playhead = trunc(accuratehead);
+                if (direction > 0) {
+                    frac = accuratehead - playhead;
+                } else if (direction < 0) {
+                    frac = 1.0 - (accuratehead - playhead);
                 } else {
-                apned:
-                    kh_process_initial_loop_boundary_constraints(
-                        x, b, &st.accuratehead, speed, direction);
-                    // initialhigh = append ? initialhigh : maxhead;   // !! !!
+                    frac = 0.0;
+                }                                                                                   // setloopsize  // ??
+                kh_interp_index(playhead, &interp0, &interp1, &interp2, &interp3, direction, directionorig, maxloop, frames - 1);  // samp-indices
+                
+                if (record) {           // if recording do linear-interp else...
+                    osamp1 =    kh_linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
+                } else {                // ...cubic / spline if interpflag > 0 (default cubic)
+                    if (interp == 1)
+                        osamp1  = kh_cubic_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                    else if (interp == 2)
+                        osamp1  = kh_spline_interp(frac, b[interp0 * pchans], b[interp1 * pchans], b[interp2 * pchans], b[interp3 * pchans]);
+                    else
+                        osamp1  = kh_linear_interp(frac, b[interp1 * pchans], b[interp2 * pchans]);
                 }
-
-                playhead = trunc(st.accuratehead);
-
-                // Use helper function for playfade handling
-                kh_process_initial_loop_playfade(
-                    st.globalramp, &st.playfade, &st.playfadeflag, &st.recendmark, &st.go);
-            }
-
-            osamp1 = 0.0;
-            kh_calculate_sync_output(
-                osamp1, &o1prev, &out1, syncoutlet, &outPh, st.accuratehead, st.minloop,
-                st.maxloop, st.directionorig, st.frames, setloopsize);
-
-            // ~ipoke - originally by PA Tremblay:
-            // http://www.pierrealexandretremblay.com/welcome.html (modded to
-            // assume maximum distance recorded into buffer~ as the total
-            // length)
-            if (st.record) {
-                if ((st.recordfade < st.globalramp) && (st.globalramp > 0.0))
-                    recin1 = kh_ease_record(
-                        recin1 + ((double)b[playhead * st.pchans]) * st.overdubamp, st.recfadeflag,
-                        st.globalramp, st.recordfade);
-                else
-                    recin1 += ((double)b[playhead * st.pchans]) * st.overdubamp;
-
-                kh_process_initial_loop_ipoke_recording(
-                    b, st.pchans, &x->timing.recordhead, playhead, recin1, &st.pokesteps, &writeval1,
-                    direction, st.directionorig, st.maxhead, st.frames); // ~ipoke end
-                if (st.globalramp) // realtime ramps for record on/off
-                {
-                    if (st.recordfade < st.globalramp) {
-                        st.recordfade++;
-                        if ((st.recfadeflag) && (st.recordfade >= st.globalramp)) {
-                            kh_process_recording_fade_completion(
-                                st.recfadeflag, &st.recendmark, &st.record, &st.triginit, &st.jumpflag,
-                                &st.loopdetermine, &st.recordfade, st.directionorig, &st.maxloop,
-                                st.maxhead, st.frames);
-                            st.recfadeflag = 0;
+                
+                if (globalramp)
+                {                                           // "Switch and Ramp" - http://msp.ucsd.edu/techniques/v0.11/book-html/node63.html
+                    if (snrfade < 1.0)
+                    {
+                        if (snrfade == 0.0) {
+                            o1dif = o1prev - osamp1;
+                        }
+                        osamp1 += kh_ease_switchramp(o1dif, snrfade, snrtype);// <- easing-curv options implemented by raja
+                        snrfade += 1 / snrramp;
+                    }                                               // "Switch and Ramp" end
+                    
+                    if (playfade < globalramp)
+                    {                                               // realtime ramps for play on/off
+                        osamp1 = kh_ease_record(osamp1, (playfadeflag > 0), globalramp, playfade);
+                        playfade++;
+                        if (playfade >= globalramp)
+                        {
+                            switch (playfadeflag)
+                            {
+                                case 0:
+                                    break;
+                                case 1:
+                                    playfadeflag = go = 0;  // record alternateflag   // play alternateflag  // stop alternateflag / regular
+                                    break;
+                                case 2:
+                                    if (!record)
+                                        triginit = jumpflag = 1;
+//                                  break;                  // !! no break - pass 2 -> 3 !!
+                                case 3:                     // jump // record off reg
+                                    playfadeflag = playfade = 0;
+                                    break;
+                                case 4:                     // append
+                                    go = triginit = loopdetermine = 1;
+                                    // !! will disbling this enable play behind append ?? should this be dependent on passing previous maxloop ??
+                                    snrfade = 0.0;
+                                    playfade = 0;           // !!
+                                    playfadeflag = 0;
+                                    break;
+                            }
                         }
                     }
                 } else {
-                    if (st.recfadeflag) {
-                        kh_process_recording_fade_completion(
-                            st.recfadeflag, &st.recendmark, &st.record, &st.triginit, &st.jumpflag,
-                            &st.loopdetermine, &st.recordfade, st.directionorig, &st.maxloop, st.maxhead,
-                            st.frames);
-                        st.recfadeflag = 0;
+                    switch (playfadeflag)
+                    {
+                        case 0:
+                            break;
+                        case 1:
+                            playfadeflag = go = 0;
+                            break;
+                        case 2:
+                            if (!record)
+                                triginit = jumpflag = 1;
+//                          break;                                  // !! no break - pass 2 -> 3 !!
+                        case 3:                                     // jump     // record off reg
+                            playfadeflag = 0;
+                            break;
+                        case 4:                                     // append
+                            go = triginit = loopdetermine = 1;
+                            // !! will disbling this enable play behind append ?? should this be based on passing previous maxloop ??
+                            snrfade = 0.0;
+                            playfade = 0;   // !!
+                            playfadeflag = 0;
+                            break;
                     }
-                } //
-                x->timing.recordhead = playhead;
-                dirt = 1;
-                // initialhigh = maxloop;
+                }
+                
+            } else {
+                osamp1 = 0.0;
             }
-            st.directionprev = direction;
-        }
-        if (st.ovdbdif != 0.0)
-            st.overdubamp = st.overdubamp + st.ovdbdif;
+            
+            o1prev = osamp1;
+            *out1++ = osamp1;
+            if (syncoutlet) {
+                setloopsize = maxloop-minloop;
+                *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
+            }
 
-        st.initialhigh = (dirt) ? st.maxloop : st.initialhigh; // recordhead ??
+            /*
+             ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
+             (modded to allow for 'selection' (window) and 'selstart' (position) to change on the fly)
+             raja's razor: simplest answer to everything was:
+             recin1 = kh_ease_record(recin1 + (b[playhead * pchans] * overdubamp), recfadeflag, globalramp, recordfade); ...
+             ... placed at the beginning / input of ipoke~ code to apply appropriate ramps to oldbuf + newinput (everything all-at-once) ...
+             ... allows ipoke~ code to work its sample-specific math / magic accurately through the ducking / ramps even at high speed
+            */
+            if (record)
+            {
+                if ((recordfade < globalramp) && (globalramp > 0.0))
+                    recin1 = kh_ease_record(recin1 + (((double)b[playhead * pchans]) * overdubamp), recfadeflag, globalramp, recordfade);
+                else
+                    recin1 += ((double)b[playhead * pchans]) * overdubamp;
+                
+                if (recordhead < 0) {
+                    recordhead = playhead;
+                    pokesteps = 0.0;
+                    recplaydif = writeval1 = 0.0;
+                }
+                
+                if (recordhead == playhead) {
+                    writeval1 += recin1;
+                    pokesteps += 1.0;
+                } else {
+                    if (pokesteps > 1.0) {              // linear-averaging for speed < 1x
+                        writeval1 = writeval1 / pokesteps;
+                        pokesteps = 1.0;
+                    }
+                    b[recordhead * pchans] = writeval1;
+                    recplaydif = (double)(playhead - recordhead);
+                    if (recplaydif > 0) {               // linear-interpolation for speed > 1x
+                        coeff1 = (recin1 - writeval1) / recplaydif;
+                        for (i = recordhead + 1; i < playhead; i++) {
+                            writeval1 += coeff1;
+                            b[i * pchans] = writeval1;
+                        }
+                    } else {
+                        coeff1 = (recin1 - writeval1) / recplaydif;
+                        for (i = recordhead - 1; i > playhead; i--) {
+                            writeval1 -= coeff1;
+                            b[i * pchans] = writeval1;
+                        }
+                    }
+                    writeval1 = recin1;
+                }
+                recordhead = playhead;
+                dirt = 1;
+            }                                           // ~ipoke end
+            
+            if (globalramp)                             // realtime ramps for record on/off
+            {
+                if(recordfade < globalramp)
+                {
+                    recordfade++;
+                    if ((recfadeflag) && (recordfade >= globalramp))
+                    {
+                        if (recfadeflag == 2) {
+                            triginit = jumpflag = 1;
+                            recordfade = 0;
+                        } else if (recfadeflag == 5) {
+                            record = 1;
+                        } else {
+                            record = 0;
+                        }
+                        recfadeflag = 0;
+                    }
+                }
+            } else {
+                if (recfadeflag) {
+                    if (recfadeflag == 2) {
+                        triginit = jumpflag = 1;
+                    } else if (recfadeflag == 5) {
+                        record = 1;
+                    } else {
+                        record = 0;
+                    }
+                    recfadeflag = 0;
+                }
+            }
+            directionprev = direction;
+            
+        } else {                                        // initial loop creation
+        // !! is 'loopdetermine' !!
+
+            if (go)
+            {
+                if (triginit)
+                {
+                    if (jumpflag)                       // jump
+                    {
+                        if (directionorig >= 0) {
+                            accuratehead = jumphead * maxhead;      // !! maxhead !!
+                        } else {
+                            accuratehead = (frames - 1) - (((frames - 1) - maxhead) * jumphead);
+                        }
+                        jumpflag = 0;
+                        snrfade = 0.0;
+                        if (record) {
+                            if (globalramp) {
+                                kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                recordfade = 0;
+                            }
+                            recfadeflag = 0;
+                            recordhead = -1;
+                        }
+                        triginit = 0;
+                    } else if (append) {                // append
+                        snrfade = 0.0;
+                        triginit = 0;
+                        if (record)
+                        {
+                            accuratehead = maxhead;                 // !! maxhead !!
+                            if (globalramp) {
+                                kh_ease_bufon(frames - 1, b, pchans, accuratehead, recordhead, direction, globalramp);
+                                recordfade = 0;
+                            }
+                            alternateflag = 1;
+                            recfadeflag = 0;
+                            recordhead = -1;
+                        } else {
+                            goto apned;
+                        }
+                    } else {                            // trigger start of initial loop creation
+                        directionorig = direction;
+                        minloop = 0.0;
+                        maxloop = frames - 1;
+                        maxhead = accuratehead = (direction >= 0) ? minloop : maxloop;     // (direction >= 0) ? 0.0 : (frames - 1);
+                        alternateflag = 1;
+                        recordhead = -1;
+                        snrfade = 0.0;
+                        triginit = 0;
+                    }
+                } else {
+apned:
+                    setloopsize = maxloop - minloop;                // not really required here because initial loop ??
+                    speedsrscaled = speed * srscale;
+                    if (record)                                     // why 1024 ??
+                        speedsrscaled = (fabs(speedsrscaled) > (setloopsize / 1024)) ? ((setloopsize / 1024) * direction) : speedsrscaled;
+                    accuratehead = accuratehead + speedsrscaled;
+                    if (direction == directionorig)                 // buffer~ boundary constraints and registry of maximum distance traversed
+                    {
+                        if (accuratehead > (frames - 1))
+                        {
+                            accuratehead = 0.0;
+                            record = append;
+                            if (record) {
+                                if (globalramp) {
+                                    kh_ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);   // maxloop ??
+                                    recordhead = -1;
+                                    recfadeflag = recordfade = 0;
+                                }
+                            }
+                            recendmark = triginit = 1;
+                            loopdetermine = alternateflag = 0;
+                            maxhead = frames - 1;
+                        } else if (accuratehead < 0.0) {
+                            accuratehead = frames - 1;
+                            record = append;
+                            if (record) {
+                                if (globalramp) {
+                                    kh_ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
+                                    recordhead = -1;
+                                    recfadeflag = recordfade = 0;
+                                }
+                            }
+                            recendmark = triginit = 1;
+                            loopdetermine = alternateflag = 0;
+                            maxhead = 0.0;
+                        } else {                                    // <- track max write position
+                            if ( ((directionorig >= 0) && (maxhead < accuratehead)) || ((directionorig < 0) && (maxhead > accuratehead)) ) {
+                                maxhead = accuratehead;
+                            }
+                        }
+                    } else if (direction < 0) {                     // wraparounds for reversal while creating initial-loop
+                        if (accuratehead < 0.0)
+                        {
+                            accuratehead = maxhead + accuratehead;
+                            if (globalramp) {
+                                kh_ease_bufoff(frames - 1, b, pchans, minloop, -direction, globalramp);     // 0.0  // ??
+                                recordhead = -1;
+                                recfadeflag = recordfade = 0;
+                            }
+                        }
+                    } else if (direction >= 0) {
+                        if (accuratehead > (frames - 1))
+                        {
+                            accuratehead = maxhead + (accuratehead - (frames - 1));
+                            if (globalramp) {
+                                kh_ease_bufoff(frames - 1, b, pchans, (frames - 1), -direction, globalramp);   // maxloop ??
+                                recordhead = -1;
+                                recfadeflag = recordfade = 0;
+                            }
+                        }
+                    }
+                //initialhigh = append ? initialhigh : maxhead;   // !! !!
+                }
+                
+                playhead = trunc(accuratehead);
+                if (direction > 0) {                            // interp ratio
+                    frac = accuratehead - playhead;
+                } else if (direction < 0) {
+                    frac = 1.0 - (accuratehead - playhead);
+                } else {
+                    frac = 0.0;
+                }
+                
+                if (globalramp)
+                {
+                    if (playfade < globalramp)                  // realtime ramps for play on/off
+                    {
+                        playfade++;
+                        if (playfadeflag)
+                        {
+                            if (playfade >= globalramp)
+                            {
+                                if (playfadeflag == 2) {
+                                    recendmark = 4;
+                                    go = 1;
+                                }
+                                playfadeflag = 0;
+                                switch (recendmark) {
+                                    case 0:
+                                    case 1:
+                                        go = 0;
+                                        break;
+                                    case 2:
+                                    case 3:
+                                        go = 1;
+                                        playfade = 0;
+                                        break;
+                                    case 4:
+                                        recendmark = 0;
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if (playfadeflag)
+                    {
+                        if (playfadeflag == 2) {
+                            recendmark = 4;
+                            go = 1;
+                        }
+                        playfadeflag = 0;
+                        switch (recendmark) {
+                            case 0:
+                            case 1:
+                                go = 0;
+                                break;
+                            case 2:
+                            case 3:
+                                go = 1;
+                                break;
+                            case 4:
+                                recendmark = 0;
+                                break;
+                        }
+                    }
+                }
+                
+            }
+            
+            osamp1 = 0.0;
+            o1prev = osamp1;
+            *out1++ = osamp1;
+            if (syncoutlet) {
+                setloopsize = maxloop-minloop;
+                *outPh++    = (directionorig>=0) ? ((accuratehead-minloop)/setloopsize) : ((accuratehead-(frames-setloopsize))/setloopsize);
+            }
+            
+            // ~ipoke - originally by PA Tremblay: http://www.pierrealexandretremblay.com/welcome.html
+            // (modded to assume maximum distance recorded into buffer~ as the total length)
+            if (record)
+            {
+                if ((recordfade < globalramp) && (globalramp > 0.0))
+                    recin1 = kh_ease_record(recin1 + ((double)b[playhead * pchans]) * overdubamp, recfadeflag, globalramp, recordfade);
+                else
+                    recin1 += ((double)b[playhead * pchans]) * overdubamp;
+                
+                if (recordhead < 0) {
+                    recordhead = playhead;
+                    pokesteps = 0.0;
+                    recplaydif = writeval1 = 0.0;
+                }
+                
+                if (recordhead == playhead) {
+                    writeval1 += recin1;
+                    pokesteps += 1.0;
+                } else {
+                    if (pokesteps > 1.0) {                          // linear-averaging for speed < 1x
+                        writeval1 = writeval1 / pokesteps;
+                        pokesteps = 1.0;
+                    }
+                    b[recordhead * pchans] = writeval1;
+                    recplaydif = (double)(playhead - recordhead);   // linear-interp for speed > 1x
+                    if (direction != directionorig)
+                    {
+                        if (directionorig >= 0)
+                        {
+                            if (recplaydif > 0)
+                            {
+                                if (recplaydif > (maxhead * 0.5))
+                                {
+                                    recplaydif -= maxhead;
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead - 1); i >= 0; i--) {
+                                        writeval1 -= coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                    for (i = maxhead; i > playhead; i--) {
+                                        writeval1 -= coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                } else {
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead + 1); i < playhead; i++) {
+                                        writeval1 += coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                }
+                            } else {
+                                if ((-recplaydif) > (maxhead * 0.5))
+                                {
+                                    recplaydif += maxhead;
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead + 1); i < (maxhead + 1); i++) {
+                                        writeval1 += coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                    for (i = 0; i < playhead; i++) {
+                                        writeval1 += coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                } else {
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead - 1); i > playhead; i--) {
+                                        writeval1 -= coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                }
+                            }
+                        } else {
+                            if (recplaydif > 0)
+                            {
+                                if (recplaydif > (((frames - 1) - (maxhead)) * 0.5))
+                                {
+                                    recplaydif -= ((frames - 1) - (maxhead));
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead - 1); i >= maxhead; i--) {
+                                        writeval1 -= coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                    for (i = (frames - 1); i > playhead; i--) {
+                                        writeval1 -= coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                } else {
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead + 1); i < playhead; i++) {
+                                        writeval1 += coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                }
+                            } else {
+                                if ((-recplaydif) > (((frames - 1) - (maxhead)) * 0.5))
+                                {
+                                    recplaydif += ((frames - 1) - (maxhead));
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead + 1); i < frames; i++) {
+                                        writeval1 += coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                    for (i = maxhead; i < playhead; i++) {
+                                        writeval1 += coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                } else {
+                                    coeff1 = (recin1 - writeval1) / recplaydif;
+                                    for (i = (recordhead - 1); i > playhead; i--) {
+                                        writeval1 -= coeff1;
+                                        b[i * pchans] = writeval1;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (recplaydif > 0)
+                        {
+                            coeff1 = (recin1 - writeval1) / recplaydif;
+                            for (i = (recordhead + 1); i < playhead; i++) {
+                                writeval1 += coeff1;
+                                b[i * pchans] = writeval1;
+                            }
+                        } else {
+                            coeff1 = (recin1 - writeval1) / recplaydif;
+                            for (i = (recordhead - 1); i > playhead; i--) {
+                                writeval1 -= coeff1;
+                                b[i * pchans] = writeval1;
+                            }
+                        }
+                    }
+                    writeval1 = recin1;
+                }                           // ~ipoke end
+                if (globalramp)             // realtime ramps for record on/off
+                {
+                    if (recordfade < globalramp)
+                    {
+                        recordfade++;
+                        if ((recfadeflag) && (recordfade >= globalramp))
+                        {
+                            if (recfadeflag == 2) {
+                                recendmark = 4;
+                                triginit = jumpflag = 1;
+                                recordfade = 0;
+                            } else if (recfadeflag == 5) {
+                                record = 1;
+                            }
+                            recfadeflag = 0;
+                            //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                            switch (recendmark)
+                            {
+                                case 0:
+                                    record = 0;
+                                    break;
+                                case 1:
+                                    if (directionorig < 0) {
+                                        maxloop = (frames - 1) - maxhead;
+                                    } else {
+                                        maxloop = maxhead;
+                                    }
+//                                  break;                  // !! no break - pass 1 -> 2 !!
+                                case 2:
+                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                                    record = loopdetermine = 0;
+                                    triginit = 1;
+                                    break;
+                                case 3:
+                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                                    record = triginit = 1;
+                                    recordfade = loopdetermine = 0;
+                                    break;
+                                case 4:
+                                    //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                                    recendmark = 0;
+                                    break;
+                            }
+                        }
+                    }
+                } else {
+                    if (recfadeflag)
+                    {
+                        if (recfadeflag == 2) {
+                            recendmark = 4;
+                            triginit = jumpflag = 1;
+                        } else if (recfadeflag == 5) {
+                            record = 1;
+                        }
+                        recfadeflag = 0;
+                        switch (recendmark)
+                        {
+                            case 0:
+                                record = 0;
+                                break;
+                            case 1:
+                                if (directionorig < 0) {
+                                    maxloop = (frames - 1) - maxhead;
+                                } else {
+                                    maxloop = maxhead;
+                                }
+//                              break;                      // !! no break - pass 1 -> 2 !!
+                            case 2:
+                                //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                                record = loopdetermine = 0;
+                                triginit = 1;
+                                break;
+                            case 3:
+                                //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                                record = triginit = 1;
+                                loopdetermine = 0;
+                                break;
+                            case 4:
+                                //initial_points(minloop, maxloop, &initiallow, &initialhigh);
+                                recendmark = 0;
+                                break;
+                        }
+                    }
+                }               //
+                recordhead = playhead;
+                dirt = 1;
+                //initialhigh = maxloop;
+            }
+            directionprev = direction;
+        }
+        if (ovdbdif != 0.0)
+            overdubamp = overdubamp + ovdbdif;
+
+        initialhigh = (dirt) ? maxloop : initialhigh;  // recordhead ??
     }
 
-    // Use helper function for cleanup
-    kh_cleanup_perform(x, buf, b, dirt, st.go);
+    x->audio.o1prev        = o1prev;
+    x->audio.o1dif         = o1dif;
+    x->audio.writeval1     = writeval1;
 
-    // Store channel-specific variables for mono
-    x->audio.o1prev = o1prev;
-    x->audio.o1dif = o1dif;
-    x->audio.writeval1 = writeval1;
+    x->timing.maxhead      = maxhead;
+    x->audio.pokesteps     = pokesteps;
+    x->state.wrapflag      = wrapflag;
+    x->fade.snrfade        = snrfade;
+    x->timing.playhead     = accuratehead;
+    x->state.directionorig = directionorig;
+    x->state.directionprev = directionprev;
+    x->timing.recordhead   = recordhead;
+    x->state.alternateflag = alternateflag;
+    x->fade.recordfade     = recordfade;
+    x->state.triginit      = triginit;
+    x->state.jumpflag      = jumpflag;
+    x->state.go            = go;
+    x->state.record        = record;
+    x->state.recordprev    = recordprev;
+    x->state.statecontrol  = statecontrol;
+    x->fade.playfadeflag   = playfadeflag;
+    x->fade.recfadeflag    = recfadeflag;
+    x->fade.playfade       = playfade;
+    x->loop.minloop        = minloop;
+    x->loop.maxloop        = maxloop;
+    x->loop.initiallow     = initiallow;
+    x->loop.initialhigh    = initialhigh;
+    x->state.loopdetermine = loopdetermine;
+    x->loop.startloop      = startloop;
+    x->loop.endloop        = endloop;
+    x->audio.overdubprev   = overdubamp;
+    x->state.recendmark    = recendmark;
+    x->state.append        = append;
 
-    // Store common state variables back into the object
-    kh_store_perform_state(x, &st);
-
+    kh_cleanup_perform(x, buf, b, dirt, go);
     return;
 
 zero:
@@ -2954,7 +3745,6 @@ zero:
         if (syncoutlet)
             *outPh++ = 0.0;
     }
-
     return;
 }
 
