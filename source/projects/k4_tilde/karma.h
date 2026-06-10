@@ -106,6 +106,19 @@ typedef enum {
     INTERP_SPLINE = 2  // Catmull-Rom spline interpolation (4-point 3rd-order)
 } interp_type_t;
 
+// Reference state-machine constant names (used by the self-contained poly perform,
+// ported verbatim from karma_core). Every value equals the corresponding magic int in
+// k4's convention: SC_* == control_state_t, REC_FADE_*/PLAY_FADE_* == the recfadeflag/
+// playfadeflag ints, RECEND_* == the recendmark ints. Names only; no behaviour change.
+enum { SC_ZERO = 0, SC_REC_INITIAL = 1, SC_REC_ALT = 2, SC_REC_OFF = 3,
+       SC_PLAY_ALT = 4, SC_PLAY_ON = 5, SC_STOP_ALT = 6, SC_STOP = 7,
+       SC_JUMP = 8, SC_APPEND = 9, SC_APPEND_SPECIAL = 10, SC_REC_ON = 11 };
+enum { REC_FADE_NONE = 0, REC_FADE_OUT = 1, REC_FADE_JUMP = 2, REC_FADE_IN = 5 };
+enum { PLAY_FADE_NONE = 0, PLAY_FADE_OUT = 1, PLAY_FADE_JUMP = 2,
+       PLAY_FADE_RECOFF = 3, PLAY_FADE_APPEND = 4 };
+enum { RECEND_NONE = 0, RECEND_GENERIC = 1, RECEND_EXIT_OVERDUB = 2,
+       RECEND_ENTER_OVERDUB = 3, RECEND_CROSSING = 4 };
+
 typedef struct t_karma t_karma;
 
 // ============================================================================

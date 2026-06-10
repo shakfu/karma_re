@@ -193,6 +193,11 @@ static void run_scenario(t_karma *x, const scenario *sc, perform_fn perform, rep
             }
             in_speed[i] = cur_speed;
         }
+        // Re-point the I/O arrays each vector, mirroring how Max hands perform64 a fresh
+        // set of channel pointers per call. Routines that advance ins[i]/outs[i] in place
+        // (e.g. the MC poly path) would otherwise walk off the per-vector buffers.
+        for (long c = 0; c < chans; c++) { ins[c] = in_audio[c]; outs[c] = out_audio[c]; }
+        ins[chans] = in_speed;
         perform(x, ins, nins, outs, nouts, SCN_VS);
         for (int i = 0; i < SCN_VS; i++)
             for (long c = 0; c < chans; c++)

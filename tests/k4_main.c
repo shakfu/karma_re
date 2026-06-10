@@ -44,15 +44,17 @@ static void perform(t_karma *x, double **ins, long nins, double **outs, long nou
 {
     switch (x->buffer.ochans) {
         case 1:  karma_mono_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL);   break;
-        default: karma_stereo_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL); break;
+        case 2:  karma_stereo_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL); break;
+        default: karma_poly_perform(x, NULL, ins, nins, outs, nouts, vcount, 0, NULL);   break;
     }
 }
 
 int main(void)
 {
     printf("=== k4 candidate ===\n");
-    // k4's >2ch path is MC 'poly' with different I/O; restrict offline diff to mono+stereo.
-    run_all_scenarios(construct, perform, NULL, "k4", 2);
+    // poly (>2ch) is the MC routing path; with syncoutlet=0 it matches the harness I/O
+    // contract (ins[0..n-1]=audio, ins[n]=speed, outs[0..n-1]=audio), so drive up to 4ch.
+    run_all_scenarios(construct, perform, NULL, "k4", 4);
     printf("OK\n");
     return 0;
 }
